@@ -1,0 +1,124 @@
+{
+  "source": "A disposable copy of the synthetic APFS payload image was populated with extended attributes through macOS xattr and exported by Apple hdiutil.",
+  "license": "Apache-2.0; synthetic data only",
+  "os": "14.7.2",
+  "build": "23H311",
+  "architecture": "arm64",
+  "base_image": "sonoma-payload-blocks.json",
+  "steps": [
+    "Copy payload.dmg to attributes.dmg.",
+    "Attach the disposable copy at a scratch mount point with hdiutil attach -readwrite -nobrowse -noautoopen -plist.",
+    "Write attributes.txt and set the six attributes with /usr/bin/xattr -wx. Verify each with /usr/bin/xattr -px before detaching.",
+    "Detach the disposable image and export with hdiutil convert -format UDTO.",
+    "Check the exported image with /sbin/fsck_apfs -n."
+  ],
+  "inode": {
+    "name": "attributes.txt",
+    "id": 199,
+    "fsroot_leaf": 427,
+    "finder_info_location": "An inline xattr record. The inode carries INODE_HAS_FINDER_INFO, without an INO_EXT_TYPE_FINDER_INFO field.",
+    "file_content": "Synthetic native attribute fixture\n"
+  },
+  "oracle": {
+    "com.pomologie.binary": {
+      "length": 14,
+      "sha256": "792f36021b0eb62bc0bfd6a9d654f613092450a1f4af362b34efbdda24f78f27",
+      "payload_hex": "0041504653ff0066697874757265"
+    },
+    "com.pomologie.empty": {
+      "length": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "payload_hex": ""
+    },
+    "com.pomologie.unicode.é": {
+      "length": 17,
+      "sha256": "0a6a4fd01a028f3bad5b2974b7ef8ee8faaf0625befce60bce293ed918fbe31c",
+      "payload_hex": "72617720636f6d706f736564206e616d65"
+    },
+    "com.pomologie.large": {
+      "length": 9001,
+      "sha256": "531e9ba9450ac50077ed5fb36d88a44538dad2459f88b000e7f47b329fb45cea"
+    },
+    "com.apple.FinderInfo": {
+      "length": 32,
+      "sha256": "a6b9e6b15f980aa3ad0d0c5089ed03d6d01dcaf0d4bd5bd9b25ad09be97b7d68",
+      "payload_hex": "5445585474747874000000000000000000000000000000000000000000000000"
+    },
+    "com.apple.ResourceFork": {
+      "length": 19,
+      "sha256": "8a2f3c16cb51c512381c44b0e9ed73255018be19be8e61c467550e981bf2c070",
+      "payload_hex": "004e6174697665204150465320666f726bff00"
+    }
+  },
+  "native_streams": {
+    "com.apple.ResourceFork": {
+      "flags": 1,
+      "stream_id": 201,
+      "physical_owner": 199,
+      "physical_blocks": [
+        422
+      ],
+      "allocated_bytes": 4096,
+      "logical_bytes": 19
+    },
+    "com.pomologie.large": {
+      "flags": 17,
+      "stream_id": 200,
+      "physical_owner": 200,
+      "physical_blocks": [
+        419,
+        420,
+        421
+      ],
+      "allocated_bytes": 12288,
+      "logical_bytes": 9001,
+      "byte_formula": "(index * 19 + index / 4096) % 251 using integer division"
+    }
+  },
+  "native_checker": {
+    "exit_code": 0,
+    "checkpoint_xid": 6,
+    "volume_uuid": "6EA84103-3FA4-4AE1-A9F6-9385BF59772E",
+    "tool_version": "2236.141.1",
+    "warnings": "Regular-file device features were unavailable. The offline read-only fsroot, extent-reference, and container checks completed."
+  },
+  "raw_sha256": "f32bef76eedd89caf595441b84d4f3a9e35678d6dcfbe09f712e3c32bd02bc3f",
+  "raw_length": 67108864,
+  "block_size": 4096,
+  "fixtures": {
+    "file": "sonoma-xattr-blocks.bin",
+    "blocks": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      27,
+      28,
+      29,
+      30,
+      394,
+      417,
+      418,
+      419,
+      420,
+      421,
+      422,
+      423,
+      424,
+      425,
+      426,
+      427,
+      429,
+      433,
+      434,
+      435
+    ],
+    "encoding": "Each record pairs a little-endian u64 physical block address with 4096 byte-for-byte native block bytes.",
+    "sha256": "0028bbcb6c59b3fe63c9d3373c379e1f3c57b8ab96bdd3b03c341a20f24b27ea"
+  }
+}

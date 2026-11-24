@@ -413,3 +413,5 @@ fn enforces_per_tree_scan_and_page_limits() {
 }
 
 mod payload;
+
+mod xattr;

@@ -150,6 +150,7 @@ pub struct Inode {
 	pub internal_flags: u64,
 	pub stream: Option<StreamSizes>,
 	pub(crate) other_data_field: Option<u8>,
+	pub(crate) has_finder_info_field: bool,
 }
 
 /// One directory record. Its target is volume-local, and filesystem metadata
@@ -254,22 +255,14 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 	};
 	let mut stream = None;
 	let mut other_data_field = None;
+	let mut has_finder_info_field = false;
 	xfields(&value[INODE_BYTES..], |tag, data| {
 		match tag {
 			XFIELD_NAME => {
 				decode_name(data)?;
 			}
-			XFIELD_DATA_STREAM => {
-				if data.len() != DATA_STREAM_BYTES {
-					return Err(Corruption::ExtendedFields);
-				}
-				stream = Some(StreamSizes {
-					logical_bytes: u64_at(data, STREAM_SIZE)?,
-					allocated_bytes: u64_at(data, STREAM_ALLOCATED)?,
-					default_crypto_id: u64_at(data, STREAM_CRYPTO_ID)?,
-				});
-			}
-			XFIELD_FINDER_INFO if data.len() == FINDER_INFO_BYTES => {}
+			XFIELD_DATA_STREAM => stream = Some(stream_sizes(data, Corruption::ExtendedFields)?),
+			XFIELD_FINDER_INFO if data.len() == FINDER_INFO_BYTES => has_finder_info_field = true,
 			XFIELD_FINDER_INFO => return Err(Corruption::ExtendedFields),
 			_ => {
 				other_data_field.get_or_insert(tag);
@@ -287,6 +280,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		mode,
 		stream,
 		other_data_field,
+		has_finder_info_field,
 		times: Times {
 			created: u64_at(value, INODE_CREATED)?,
 			modified: u64_at(value, INODE_MODIFIED)?,
@@ -297,6 +291,17 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		group: u32_at(value, INODE_GROUP)?,
 		bsd_flags: u32_at(value, INODE_BSD_FLAGS)?,
 		internal_flags: u64_at(value, INODE_FLAGS)?,
+	})
+}
+
+pub(crate) fn stream_sizes(data: &[u8], invalid: Corruption) -> Result<StreamSizes, Corruption> {
+	if data.len() != DATA_STREAM_BYTES {
+		return Err(invalid);
+	}
+	Ok(StreamSizes {
+		logical_bytes: u64_at(data, STREAM_SIZE)?,
+		allocated_bytes: u64_at(data, STREAM_ALLOCATED)?,
+		default_crypto_id: u64_at(data, STREAM_CRYPTO_ID)?,
 	})
 }
 

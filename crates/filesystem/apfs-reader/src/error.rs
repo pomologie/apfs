@@ -29,6 +29,8 @@ pub enum Corruption {
 	ExtentReference,
 	ExtentMetadataAlias,
 	SymlinkRecord,
+	XattrRecord,
+	DuplicateXattr,
 	PhysicalNode(apfs_format::Error),
 }
 
@@ -49,6 +51,9 @@ pub enum Unsupported {
 	CompressedData,
 	EncryptedData,
 	SymlinkStorage(u16),
+	XattrStorage(u16),
+	XattrStreamRecord,
+	InodeFinderInfo,
 }
 
 /// A budget exhausted during checked filesystem traversal.
@@ -70,6 +75,7 @@ pub enum Error<E> {
 	Unsupported(Unsupported),
 	Limit(Limit),
 	InvalidName,
+	InvalidXattrName,
 	InvalidCursor,
 	NotDirectory,
 	NotRegularFile,
@@ -110,9 +116,8 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 			}
 			Self::Limit(limit) => write!(f, "APFS filesystem read limit exceeded: {limit:?}"),
 			Self::InvalidName => f.write_str("invalid APFS name component"),
-			Self::InvalidCursor => {
-				f.write_str("directory cursor is outside this view or directory")
-			}
+			Self::InvalidXattrName => f.write_str("invalid APFS extended attribute name"),
+			Self::InvalidCursor => f.write_str("APFS cursor is outside this view or inode"),
 			Self::NotDirectory => f.write_str("APFS directory inode required"),
 			Self::NotRegularFile => f.write_str("APFS regular file inode required"),
 			Self::NotSymlink => f.write_str("APFS symbolic link inode required"),

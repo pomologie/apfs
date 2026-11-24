@@ -9,12 +9,13 @@ use apfs_format::{
 };
 
 use crate::{
-	Corruption, Error, FileKind, Inode, InodeId, Unsupported, VolumeView,
+	Corruption, Error, FileKind, Inode, InodeId, StreamSizes, Unsupported, VolumeView,
 	extent_refs::References,
 	node::Slot,
 	record::Prefix,
 	walk,
-	wire::{U16_BYTES, U64_BYTES, u16_at, u32_at, u64_at},
+	wire::{U64_BYTES, u32_at, u64_at},
+	xattr::{COMPRESSION_ATTRIBUTE, SYMLINK_ATTRIBUTE, symlink_bytes},
 };
 
 const INODE_WAS_CLONED: u64 = 1 << 4;
@@ -38,13 +39,6 @@ const EXTENT_KEY_BYTES: usize = 2 * U64_BYTES;
 const EXTENT_VALUE_BYTES: usize = 3 * U64_BYTES;
 const EXTENT_BLOCK_OFFSET: usize = U64_BYTES;
 const EXTENT_CRYPTO_OFFSET: usize = 2 * U64_BYTES;
-const XATTR_NAME_OFFSET: usize = U64_BYTES + U16_BYTES;
-const XATTR_VALUE_OFFSET: usize = 2 * U16_BYTES;
-const EMBEDDED_SYMLINK_FLAGS: u16 = (1 << 1) | (1 << 2);
-const MAX_EMBEDDED_XATTR_BYTES: usize = 3804;
-const COMPRESSION_ATTRIBUTE: &str = "com.apple.decmpfs";
-const SYMLINK_ATTRIBUTE: &str = "com.apple.fs.symlink";
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReservedBlocks {
 	container_map: BlockAddress,
@@ -133,18 +127,7 @@ impl<S: ReadAt> FileData<'_, '_, S> {
 		offset: ByteOffset,
 		mut destination: &mut [u8],
 	) -> Result<(), Error<S::Error>> {
-		let bytes = destination.len() as u64;
-		if offset
-			.0
-			.checked_add(bytes)
-			.is_none_or(|end| end > self.length)
-		{
-			return Err(Error::FileRange {
-				offset: offset.0,
-				bytes,
-				length: self.length,
-			});
-		}
+		checked_read_end(offset, destination.len(), self.length)?;
 		let mut logical = offset.0;
 		let first = self
 			.extents
@@ -194,23 +177,48 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		{
 			return Err(Unsupported::CompressedData.into());
 		}
-		let (length, allocated) = inode.stream.map_or((0, 0), |stream| {
-			(stream.logical_bytes, stream.allocated_bytes)
-		});
+		self.open_stream(
+			StreamKind::File(inode.data_stream_id),
+			inode.stream.unwrap_or(StreamSizes {
+				logical_bytes: 0,
+				allocated_bytes: 0,
+				default_crypto_id: 0,
+			}),
+		)
+		.map(Some)
+	}
+
+	pub(crate) fn open_stream(
+		&mut self,
+		kind: StreamKind,
+		stream: StreamSizes,
+	) -> Result<FileData<'_, 'source, S>, Error<S::Error>> {
+		if stream.default_crypto_id != 0 {
+			return Err(Unsupported::EncryptedData.into());
+		}
+		let StreamSizes {
+			logical_bytes: length,
+			allocated_bytes: allocated,
+			..
+		} = stream;
 		let block_bytes = u64::from(self.geometry.block_bytes());
 		if length > allocated || !allocated.is_multiple_of(block_bytes) {
 			return Err(Corruption::ExtentCoverage.into());
 		}
-		self.validate_data_stream(inode.data_stream_id, allocated)?;
-		let mut extents = self.file_extents(inode.data_stream_id, allocated)?;
+		let (id, owner) = match kind {
+			StreamKind::File(id) => (id, id),
+			StreamKind::Xattr { id, owner } => (id, owner),
+		};
+		self.validate_data_stream(id, kind, allocated)?;
+		let mut extents = self.file_extents(id, allocated)?;
 		if !extents.is_empty() {
-			self.verify_extent_references(inode.data_stream_id, &mut extents)?;
+			self.verify_extent_references(owner, &mut extents)?;
 		}
-		Ok(Some(FileData {
+		Ok(FileData {
 			objects: &mut self.objects,
 			extents,
 			length,
-		}))
+		})
 	}
 
 	/// Reads the exact target bytes stored for an inline symbolic link. A
@@ -228,7 +236,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		}
 		validate_inode(inode)?;
 		let target = self
-			.with_xattr(id, SYMLINK_ATTRIBUTE, symlink_target)?
+			.with_xattr(id, SYMLINK_ATTRIBUTE, symlink_bytes)?
 			.ok_or(Corruption::SymlinkRecord)?;
 		Ok(Some(target))
 	}
@@ -236,6 +244,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 	fn validate_data_stream(
 		&mut self,
 		id: ObjectId,
+		kind: StreamKind,
 		allocated: u64,
 	) -> Result<(), Error<S::Error>> {
 		let mut seen = false;
@@ -262,8 +271,12 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 				Ok(())
 			},
 		)?;
-		if allocated != 0 && !seen {
-			return Err(Corruption::StreamRecord.into());
+		match kind {
+			StreamKind::File(_) if allocated != 0 && !seen => {
+				return Err(Corruption::StreamRecord.into());
+			}
+			StreamKind::Xattr { .. } if seen => return Err(Unsupported::XattrStreamRecord.into()),
+			_ => {}
 		}
 		Ok(())
 	}
@@ -332,31 +345,29 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		extents.sort_unstable_by_key(|extent| extent.logical.start);
 		Ok(())
 	}
+}
 
-	fn with_xattr<T>(
-		&mut self,
-		id: InodeId,
-		name: &str,
-		decode: impl Fn(&[u8]) -> Result<T, Error<S::Error>>,
-	) -> Result<Option<T>, Error<S::Error>> {
-		let mut found = None;
-		walk::scan(
-			&mut self.objects,
-			self.geometry,
-			Prefix::xattrs(id),
-			self.limits,
-			|slot| {
-				if xattr_name(slot.key)? == name {
-					if found.is_some() {
-						return Err(Corruption::DuplicateEntry.into());
-					}
-					found = Some(decode(slot.value)?);
-				}
-				Ok(())
-			},
-		)?;
-		Ok(found)
-	}
+#[derive(Clone, Copy)]
+pub(crate) enum StreamKind {
+	File(ObjectId),
+	Xattr { id: ObjectId, owner: ObjectId },
+}
+
+pub(crate) fn checked_read_end<E>(
+	offset: ByteOffset,
+	bytes: usize,
+	length: u64,
+) -> Result<u64, Error<E>> {
+	let bytes = bytes as u64;
+	offset
+		.0
+		.checked_add(bytes)
+		.filter(|&end| end <= length)
+		.ok_or(Error::FileRange {
+			offset: offset.0,
+			bytes,
+			length,
+		})
 }
 
 fn validate_inode<E>(inode: Inode) -> Result<(), Error<E>> {
@@ -423,41 +434,4 @@ fn extent_blocks(extent: &Extent, block_bytes: u64) -> Range<u64> {
 	let start = extent.physical / block_bytes;
 	let blocks = (extent.logical.end - extent.logical.start) / block_bytes;
 	start..start + blocks
-}
-
-fn xattr_name(bytes: &[u8]) -> Result<&str, Corruption> {
-	let length = usize::from(u16_at(bytes, U64_BYTES)?);
-	if bytes.len() != XATTR_NAME_OFFSET + length {
-		return Err(Corruption::RecordKey);
-	}
-	let name = bytes[XATTR_NAME_OFFSET..]
-		.strip_suffix(&[0])
-		.ok_or(Corruption::RecordKey)?;
-	if name.is_empty() || name.contains(&0) {
-		return Err(Corruption::RecordKey);
-	}
-	core::str::from_utf8(name).map_err(|_| Corruption::RecordKey)
-}
-
-fn symlink_target<E>(bytes: &[u8]) -> Result<Vec<u8>, Error<E>> {
-	let flags = u16_at(bytes, 0)?;
-	if flags != EMBEDDED_SYMLINK_FLAGS {
-		return Err(Unsupported::SymlinkStorage(flags).into());
-	}
-	let length = usize::from(u16_at(bytes, U16_BYTES)?);
-	if length > MAX_EMBEDDED_XATTR_BYTES || bytes.len() != XATTR_VALUE_OFFSET + length {
-		return Err(Corruption::SymlinkRecord.into());
-	}
-	let target = bytes[XATTR_VALUE_OFFSET..]
-		.strip_suffix(&[0])
-		.ok_or(Corruption::SymlinkRecord)?;
-	if target.is_empty() || target.contains(&0) {
-		return Err(Corruption::SymlinkRecord.into());
-	}
-	let mut result = Vec::new();
-	result
-		.try_reserve_exact(target.len())
-		.map_err(|_| Error::Allocation)?;
-	result.extend_from_slice(target);
-	Ok(result)
 }

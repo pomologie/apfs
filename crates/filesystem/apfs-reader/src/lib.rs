@@ -11,6 +11,7 @@ mod payload;
 mod record;
 mod walk;
 mod wire;
+mod xattr;
 
 use alloc::{string::String, vec::Vec};
 use core::num::NonZeroU16;
@@ -25,6 +26,7 @@ use apfs_format::{
 pub use error::{Corruption, Error, Limit, Unsupported};
 pub use payload::FileData;
 pub use record::{DirectoryEntry, FileKind, Inode, InodeCount, InodeId, StreamSizes, Times};
+pub use xattr::{Xattr, XattrCursor, XattrData, XattrPage, XattrStorage};
 
 use record::{DirectoryRecord, Prefix};
 
@@ -44,7 +46,7 @@ pub struct TreeLimits {
 	pub max_nodes: u16,
 	/// Maximum number of examined key/value slots per scan.
 	pub max_records: u32,
-	/// Maximum number of directory entries returned by one page.
+	/// Maximum number of directory entries or attributes returned by one page.
 	pub max_entries_per_page: u16,
 }
 
