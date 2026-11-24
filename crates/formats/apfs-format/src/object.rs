@@ -16,6 +16,8 @@ const SUBTYPE_OFFSET: usize = 28;
 
 /// Standard object header size in bytes.
 pub const HEADER_BYTES: usize = SUBTYPE_OFFSET + size_of::<u32>();
+/// Bits encoding the object kind, excluding namespace and object flags.
+pub const KIND_MASK: u32 = u16::MAX as u32;
 const CHECKSUM_BYTES: usize = size_of::<u64>();
 const FLETCHER_WORD_BYTES: usize = size_of::<u32>();
 const FLETCHER_MODULUS: u64 = (1 << u32::BITS) - 1;
@@ -45,6 +47,14 @@ pub struct Header {
 }
 
 impl Header {
+	/// Reads an unverified raw object type for classifying a candidate block.
+	///
+	/// # Errors
+	/// Returns an error if the type field is truncated.
+	pub fn type_hint(bytes: &[u8]) -> Result<u32, Error> {
+		u32_at(bytes, OBJECT_TYPE_OFFSET)
+	}
+
 	/// Decode and verify the standard header over the complete physical object.
 	///
 	/// # Errors

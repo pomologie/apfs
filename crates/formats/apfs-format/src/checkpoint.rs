@@ -52,6 +52,9 @@ pub struct Map<'bytes> {
 }
 
 impl<'bytes> Map<'bytes> {
+	/// Object type and storage flags of an ordinary checkpoint map.
+	pub const OBJECT_TYPE: u32 = PHYSICAL_CHECKPOINT_MAP;
+
 	/// Parse a complete checkpoint mapping block and validate each physical span
 	/// against container geometry. Data-ring membership and XID matching are
 	/// contextual checks for the checkpoint selector.

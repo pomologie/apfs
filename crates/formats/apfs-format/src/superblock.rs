@@ -24,6 +24,9 @@ const MISSING_AREA_ADDRESS: BlockAddress = BlockAddress(0);
 
 const MAGIC_OFFSET: usize = HEADER_BYTES;
 const BLOCK_SIZE_OFFSET: usize = 36;
+/// Bytes required to read an NXSB block-size hint.
+pub const BLOCK_SIZE_PREFIX_BYTES: usize = BLOCK_SIZE_OFFSET + size_of::<u32>();
+const KEYLOCKER_BLOCK_COUNT_OFFSET: usize = 1304;
 const BLOCK_COUNT_OFFSET: usize = 40;
 const FEATURES_OFFSET: usize = 48;
 const READ_ONLY_COMPATIBLE_FEATURES_OFFSET: usize = 56;
@@ -184,6 +187,18 @@ impl Area {
 	}
 }
 
+/// Profile information from a checksum-verified NXSB block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct Profile {
+	/// Incompatible feature bits. Callers decide which are supported.
+	pub incompatible: u64,
+	/// The container declares a software keybag.
+	pub has_keylocker: bool,
+	/// One or both checkpoint areas use an indirection tree.
+	pub fragmented_checkpoint_area: bool,
+}
+
 /// Verified container superblock fields, including raw feature masks.
 /// The block-zero header is a bootstrap hint and does not select a checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +236,50 @@ pub struct Superblock {
 }
 
 impl Superblock {
+	/// Object type and storage flags of an ordinary container superblock.
+	pub const OBJECT_TYPE: u32 = NX_SUPERBLOCK_OBJECT_TYPE;
+
+	/// Checks for either the NXSB signature or its expected object type.
+	/// This probe does not verify the checksum.
+	#[must_use]
+	pub fn looks_like_superblock(bytes: &[u8]) -> bool {
+		field(bytes, MAGIC_OFFSET) == Ok(NX_SUPERBLOCK_MAGIC)
+			|| Header::type_hint(bytes).is_ok_and(|kind| {
+				kind & crate::object::KIND_MASK == Self::OBJECT_TYPE & crate::object::KIND_MASK
+			})
+	}
+
+	/// Verifies the complete NXSB block and reads its required profile fields
+	/// before admitting any declared container or ring geometry.
+	///
+	/// # Errors
+	/// Rejects invalid block sizes, signatures, checksums and object headers.
+	pub fn verified_profile(bytes: &[u8]) -> Result<(Header, Profile), Error> {
+		let block_bytes = Self::block_size_hint(bytes)?;
+		if bytes.len() != block_bytes as usize {
+			return Err(Error::InvalidGeometry);
+		}
+		let object = Header::decode(bytes)?;
+		if object.object_type != NX_SUPERBLOCK_OBJECT_TYPE
+			|| object.subtype != NX_SUPERBLOCK_OBJECT_SUBTYPE
+			|| object.id != NX_SUPERBLOCK_OBJECT_ID
+		{
+			return Err(Error::UnexpectedObjectType(object.object_type));
+		}
+		Ok((
+			object,
+			Profile {
+				incompatible: u64_at(bytes, INCOMPATIBLE_FEATURES_OFFSET)?,
+				has_keylocker: u64_at(bytes, KEYLOCKER_BLOCK_COUNT_OFFSET)? != 0,
+				fragmented_checkpoint_area: u32_at(bytes, DESCRIPTOR_AREA_OFFSETS.block_count)?
+					& FRAGMENTED_AREA_FLAG
+					!= 0 || u32_at(bytes, DATA_AREA_OFFSETS.block_count)?
+					& FRAGMENTED_AREA_FLAG
+					!= 0,
+			},
+		))
+	}
+
 	/// Read the candidate block length from the 40-byte NXSB prefix to size a
 	/// subsequent bounded full read. The prefix is not checksum-verified here.
 	///
@@ -240,21 +299,12 @@ impl Superblock {
 	/// # Errors
 	/// Returns an error for invalid type, geometry, checksum or fields that exceed container limits.
 	pub fn decode(bytes: &[u8], device_bytes: u64) -> Result<Self, Error> {
+		let (object, profile) = Self::verified_profile(bytes)?;
 		let geometry = Geometry::new(
 			Self::block_size_hint(bytes)?,
 			u64_at(bytes, BLOCK_COUNT_OFFSET)?,
 			device_bytes,
 		)?;
-		if bytes.len() != geometry.block_bytes as usize {
-			return Err(Error::InvalidGeometry);
-		}
-		let object = Header::decode(bytes)?;
-		if object.object_type != NX_SUPERBLOCK_OBJECT_TYPE
-			|| object.subtype != NX_SUPERBLOCK_OBJECT_SUBTYPE
-			|| object.id != NX_SUPERBLOCK_OBJECT_ID
-		{
-			return Err(Error::UnexpectedObjectType(object.object_type));
-		}
 		let max_volumes = u32_at(bytes, MAX_VOLUMES_OFFSET)?;
 		if max_volumes > MAX_FILESYSTEM_IDS as u32 {
 			return Err(Error::InvalidGeometry);
@@ -274,7 +324,7 @@ impl Superblock {
 			uuid: field(bytes, UUID_OFFSET)?,
 			features: u64_at(bytes, FEATURES_OFFSET)?,
 			read_only_compatible: u64_at(bytes, READ_ONLY_COMPATIBLE_FEATURES_OFFSET)?,
-			incompatible: u64_at(bytes, INCOMPATIBLE_FEATURES_OFFSET)?,
+			incompatible: profile.incompatible,
 			next_object: ObjectId(u64_at(bytes, NEXT_OBJECT_ID_OFFSET)?),
 			next_transaction: TransactionId(u64_at(bytes, NEXT_TRANSACTION_ID_OFFSET)?),
 			descriptors: Area::decode(bytes, geometry, DESCRIPTOR_AREA_OFFSETS)?,
