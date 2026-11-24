@@ -1,9 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/container/apfs-container",
-    "crates/formats/apfs-format",
-    "crates/foundation/apfs-core",
+	"crates/container/apfs-container",
+	"crates/filesystem/apfs-reader",
+	"crates/formats/apfs-format",
+	"crates/foundation/apfs-core",
 ]
 
 [workspace.package]
@@ -13,6 +14,7 @@ license = "Apache-2.0"
 repository = "https://github.com/pomologie/apfs"
 
 [workspace.dependencies]
+apfs-container = { path = "crates/container/apfs-container", default-features = false }
 apfs-core = { path = "crates/foundation/apfs-core", default-features = false }
 apfs-format = { path = "crates/formats/apfs-format", default-features = false }
 

@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [apfs-core, apfs-format, apfs-container]
+        package: [apfs-core, apfs-format, apfs-container, apfs-reader]
         target: [aarch64-unknown-none, x86_64-unknown-none]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -48,6 +48,7 @@ jobs:
           tree=$(cargo tree --locked -p "$FS_PACKAGE" --no-default-features --target "$FS_TARGET" -e normal --prefix none --format '{p}' | awk '{ print $1 }' | sort -u)
           case "$FS_PACKAGE" in
             apfs-container) expected=$(printf '%s\n' apfs-container apfs-core apfs-format) ;;
+            apfs-reader) expected=$(printf '%s\n' apfs-container apfs-core apfs-format apfs-reader) ;;
             *) expected=$FS_PACKAGE ;;
           esac
           test "$tree" = "$expected"
