@@ -4,6 +4,7 @@
 mod binary;
 pub mod checkpoint;
 pub mod object;
+pub mod object_map;
 pub mod superblock;
 
 /// A failed APFS object or container admission check.
@@ -24,6 +25,12 @@ pub enum Error {
 	InvalidCheckpoint,
 	/// Unsupported flags in a checkpoint mapping block.
 	UnsupportedCheckpointFlags(u32),
+	/// An object map, node header or key/value layout is inconsistent.
+	InvalidObjectMap,
+	/// Object map or tree flags require an unsupported profile.
+	UnsupportedObjectMapFlags(u32),
+	/// An object map uses snapshot metadata or an in-progress revert.
+	UnsupportedObjectMapSnapshot,
 }
 
 impl core::fmt::Display for Error {
@@ -39,6 +46,13 @@ impl core::fmt::Display for Error {
 			Self::InvalidCheckpoint => f.write_str("invalid APFS checkpoint metadata"),
 			Self::UnsupportedCheckpointFlags(flags) => {
 				write!(f, "unsupported APFS checkpoint flags {flags:#010x}")
+			}
+			Self::InvalidObjectMap => f.write_str("invalid APFS object map metadata"),
+			Self::UnsupportedObjectMapFlags(flags) => {
+				write!(f, "unsupported APFS object map or tree flags {flags:#010x}")
+			}
+			Self::UnsupportedObjectMapSnapshot => {
+				f.write_str("unsupported APFS object map snapshot or pending revert")
 			}
 		}
 	}

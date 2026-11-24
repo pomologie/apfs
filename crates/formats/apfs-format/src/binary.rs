@@ -12,6 +12,10 @@ pub(crate) fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, Error> {
 	field(bytes, offset).map(u32::from_le_bytes)
 }
 
+pub(crate) fn u16_at(bytes: &[u8], offset: usize) -> Result<u16, Error> {
+	field(bytes, offset).map(u16::from_le_bytes)
+}
+
 pub(crate) fn u64_at(bytes: &[u8], offset: usize) -> Result<u64, Error> {
 	field(bytes, offset).map(u64::from_le_bytes)
 }

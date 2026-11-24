@@ -106,10 +106,28 @@
       "checksum": "40063803fff9c66b",
       "xid": 1
     },
+    "native-block-192.bin": {
+      "physical_block": 192,
+      "sha256": "3e3ed73d81383297addb990ec2b65b8d76c1af65c1e930dd5c08af42069c8d44",
+      "checksum": "5dcadce652931213",
+      "xid": 1
+    },
+    "native-block-198.bin": {
+      "physical_block": 198,
+      "sha256": "c4ef152b529e6210b8b00865055b79eeedfda50e5902829cbd3cd06f7ed9785a",
+      "checksum": "9819a3b9819e1dd1",
+      "xid": 2
+    },
     "native-block-199.bin": {
       "physical_block": 199,
       "sha256": "346662cbd96b96a44cb6f6e66b9d9d1e8e373f7e63ee52b7fe953134d7dfdc1b",
       "checksum": "40067b8ffff982ce",
+      "xid": 2
+    },
+    "native-block-200.bin": {
+      "physical_block": 200,
+      "sha256": "da6b27fa1adbeed1f6da7b5ee9dd13c56ba632457a8cd2722eb7d336107b95a2",
+      "checksum": "1e5a34199213a5db",
       "xid": 2
     }
   },
@@ -129,5 +147,18 @@
     "selected_xid": 2,
     "volume_tool_version": "2236.141.1",
     "source_warnings": "Regular-file device features were unavailable. The offline read-only container check completed."
+  },
+  "object_map_oracle": {
+    "same_command_as_checkpoint_oracle": true,
+    "container_object_map_checked": true,
+    "checked_volume_name": "Pomologie APFS Fixture",
+    "checked_volume_uuid": "55DD69C3-CB57-4400-BD30-06760ACEEAEF",
+    "decoded_block_expectations": {
+      "xid_1_empty_root": 192,
+      "xid_2_root": 200,
+      "volume_oid": 1026,
+      "volume_mapping_xid": 2,
+      "volume_superblock": 198
+    }
   }
 }

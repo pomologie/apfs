@@ -7,6 +7,8 @@ use apfs_format::{
 	superblock::BlockAddress,
 };
 
+mod object_map;
+
 const BLOCK_BYTES: usize = 4096;
 const DEVICE_BYTES: u64 = 64 << 20;
 const BOOTSTRAP: u64 = 0;
@@ -19,7 +21,10 @@ const DATA_RING_START: u64 = 9;
 const LATEST_FIRST_DATA: u64 = 11;
 const DATA_RING_BLOCKS: u64 = 160;
 const EARLY_OMAP: u64 = 191;
+const EARLY_OMAP_ROOT: u64 = 192;
+const VOLUME_SUPERBLOCK: u64 = 198;
 const LATEST_OMAP: u64 = 199;
+const LATEST_OMAP_ROOT: u64 = 200;
 const CHECKSUM_BYTES: usize = 8;
 const OBJECT_ID_OFFSET: usize = 8;
 const XID_OFFSET: usize = 16;
@@ -70,7 +75,10 @@ impl Fixture {
 			(13, native_block!(13)),
 			(14, native_block!(14)),
 			(EARLY_OMAP, native_block!(191)),
+			(EARLY_OMAP_ROOT, native_block!(192)),
+			(VOLUME_SUPERBLOCK, native_block!(198)),
 			(LATEST_OMAP, native_block!(199)),
+			(LATEST_OMAP_ROOT, native_block!(200)),
 		]))
 	}
 

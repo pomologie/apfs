@@ -1,9 +1,10 @@
-//! Bounded, immutable selection of APFS container checkpoints.
+//! Bounded APFS checkpoint selection and read-only object-map lookup.
 #![no_std]
 
 extern crate alloc;
 
 mod error;
+mod object_map;
 mod validate;
 
 use alloc::vec::Vec;
@@ -16,7 +17,8 @@ use apfs_format::{
 	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Geometry, Profile, Superblock},
 };
 
-pub use error::{Corruption, Damage, Error, Limit, Unsupported};
+pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported};
+pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType};
 
 const BLOCK_ZERO: BlockAddress = BlockAddress(0);
 const VERSION_TWO: u64 = 1 << 1;

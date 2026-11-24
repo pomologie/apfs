@@ -6,7 +6,7 @@ use apfs_format::{object::TransactionId, superblock::BlockAddress};
 
 use crate::Diagnostic;
 
-/// A budget exhausted before checkpoint selection could finish.
+/// A budget exhausted during checkpoint selection or object lookup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Limit {
@@ -18,6 +18,8 @@ pub enum Limit {
 	ObjectBytes,
 	/// Bytes read during the entire discovery operation.
 	ReadBytes,
+	/// Number of nodes visited during one object-map lookup.
+	ObjectMapNodes,
 }
 
 /// A verified descriptor declares a format outside the supported profile.
@@ -66,7 +68,25 @@ pub struct Damage {
 	pub reason: Corruption,
 }
 
-/// A source or container prevented reliable checkpoint selection.
+/// Why an object-map lookup could not establish a checked result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ObjectMapError {
+	/// An object-map or mapped-object format check failed.
+	Format(apfs_format::Error),
+	/// The requested transaction is zero or newer than the selected checkpoint.
+	Transaction(TransactionId),
+	/// A child, map, or object points into a reserved physical range.
+	Address,
+	/// The physical or virtual object's OID or XID disagrees with its context.
+	Identity,
+	/// A child does not match its parent's promised level or key range.
+	Routing,
+	/// A child points to a node already visited by this lookup.
+	Cycle,
+}
+
+/// A source or container prevented reliable checkpoint selection or lookup.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error<E> {
@@ -97,6 +117,13 @@ pub enum Error<E> {
 	CandidateCorruption(Damage),
 	/// The ring contained no complete candidate in the supported profile.
 	NoCheckpoint { diagnostics: Vec<Diagnostic> },
+	/// Object-map or mapped-object admission failed at the given block.
+	ObjectMap {
+		/// Physical block associated with the failed lookup.
+		address: BlockAddress,
+		/// Specific failed check.
+		reason: ObjectMapError,
+	},
 }
 
 impl<E: fmt::Display> fmt::Display for Error<E> {
@@ -115,8 +142,8 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 				"unsupported APFS checkpoint at block {}, XID {}: {reason:?}",
 				descriptor.0, transaction.0
 			),
-			Self::Limit(limit) => write!(f, "APFS checkpoint discovery exhausted {limit:?} budget"),
-			Self::Allocation => f.write_str("cannot allocate APFS checkpoint workspace"),
+			Self::Limit(limit) => write!(f, "APFS operation exhausted {limit:?} budget"),
+			Self::Allocation => f.write_str("cannot allocate APFS workspace"),
 			Self::ReadBounds { offset, bytes } => write!(
 				f,
 				"APFS read of {bytes} bytes at {} exceeds source",
@@ -136,6 +163,13 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 				damage.descriptor.0, damage.reason
 			),
 			Self::NoCheckpoint { .. } => f.write_str("no complete APFS checkpoint was found"),
+			Self::ObjectMap { address, reason } => {
+				write!(
+					f,
+					"APFS object-map lookup failed at block {}: {reason:?}",
+					address.0
+				)
+			}
 		}
 	}
 }
@@ -145,6 +179,10 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
 		match self {
 			Self::Bootstrap(error) => Some(error),
 			Self::Read { source, .. } => Some(source),
+			Self::ObjectMap {
+				reason: ObjectMapError::Format(error),
+				..
+			} => Some(error),
 			_ => None,
 		}
 	}

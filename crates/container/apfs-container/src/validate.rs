@@ -4,6 +4,7 @@ use apfs_core::ReadAt;
 use apfs_format::{
 	checkpoint::{Map, Mapping},
 	object::{Header, KIND_MASK, ObjectId, TransactionId},
+	object_map::ObjectMap,
 	superblock::{Area, AreaLocation, BlockAddress, Superblock},
 };
 
@@ -12,10 +13,8 @@ use crate::{Candidate, Corruption, Error, Limit, Probe, Unsupported, check_profi
 const FIRST_CHECKPOINT_XID: TransactionId = TransactionId(1);
 const MIN_DESCRIPTOR_LENGTH: u32 = 2; // At least one map and the final NXSB.
 const EPHEMERAL: u32 = 0x8000_0000;
-const PHYSICAL: u32 = 0x4000_0000;
 const SPACE_MANAGER_TYPE: u32 = EPHEMERAL | 0x0005;
 const REAPER_TYPE: u32 = EPHEMERAL | 0x0011;
-const CONTAINER_OBJECT_MAP_TYPE: u32 = PHYSICAL | 0x000b;
 const NO_SUBTYPE: u32 = 0;
 
 pub(super) struct Rings {
@@ -180,7 +179,7 @@ impl<S: ReadAt> Probe<'_, S> {
 		let header = Header::decode(scratch).map_err(|error| reject(Corruption::Format(error)))?;
 		// A physical copy-on-write object may have been created by an older transaction.
 		if header.id != ObjectId(omap.0)
-			|| header.object_type != CONTAINER_OBJECT_MAP_TYPE
+			|| header.object_type != ObjectMap::OBJECT_TYPE
 			|| header.subtype != NO_SUBTYPE
 			|| header.transaction < FIRST_CHECKPOINT_XID
 			|| header.transaction > candidate.xid

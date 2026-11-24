@@ -6,7 +6,9 @@ The initial `apfs-format` crate decodes complete NXSB objects and checkpoint map
 
 `apfs-container` scans bounded contiguous checkpoint rings on APFS v2 single-store images. It selects the highest complete transaction after validating descriptor maps, persisted ephemeral objects, and the physical container object-map header. Torn candidates produce rollback diagnostics. Unsupported required features, source failures and exhausted budgets return errors.
 
-Native fixtures from macOS 14.7.2 cover block zero, two checkpoint descriptor pairs, their ephemeral payloads, and both container object-map headers. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image. [Fixture provenance](tests/fixtures/native-apfs.json)
+The selected view resolves container-namespace mappings through a bounded, physical, fixed-record object-map tree. Checked reads validate the mapped object's checksum, identifier, transaction and expected virtual type. Lookup handles visible tombstones and returns errors for unsupported maps, including maps that require encryption or snapshot processing. The current profile and evidence are in the [container specification](docs/features/CONTAINER.md).
+
+Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume UUID. [Fixture provenance](tests/fixtures/native-apfs.json)
 
 ```sh
 cargo nextest run --locked
@@ -14,4 +16,4 @@ cargo build --locked -p apfs-container --no-default-features --target aarch64-un
 cargo build --locked -p apfs-container --no-default-features --target x86_64-unknown-none
 ```
 
-See the [architecture](ARCHITECTURE.md) and [roadmap](ROADMAP.md) for virtual object-map and volume resolution, the filesystem reader, and release qualification.
+See the [architecture](ARCHITECTURE.md) and [roadmap](ROADMAP.md) for volume validation and volume-specific object maps, the filesystem reader, and release qualification.
