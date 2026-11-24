@@ -2,7 +2,7 @@
 
 Start with bounded object and checkpoint parsing. The specification is older than many current profiles; unknown flags and unproven variants remain unsupported. No write or boot claims inferred from parsing. Fresh CoW-format image construction and persistent mutation have separate gates. Snapshot/clone reclamation and checkpoint publication require strict formal models and crash testing.
 
-Read the shared ecosystem verification standard EVS-1 (`docs/architecture/ECOSYSTEM_VERIFICATION.md` after handoff). The following is the owning obligation registry summary. Full properties, assumptions, bounds, negative witnesses and conjunctive evidence methods are in `verification/obligations.json`. All obligations are planned. Gate applies only to the activated supported profile; required proofs/tests must pass before that capability ships. Nonblocking advanced capabilities remain disabled if not qualified.
+Read the shared ecosystem verification standard EVS-1 (`docs/architecture/ECOSYSTEM_VERIFICATION.md` after handoff). The following summarizes the repository-wide planning index at `verification/obligations.json`, which defines properties, assumptions, bounds, negative witnesses and required evidence methods. Implemented proof artifacts live in the owning crate’s `verification/` directory. All obligations are planned. Gate applies only to the activated supported profile; required proofs/tests must pass before that capability ships. Nonblocking advanced capabilities remain disabled if not qualified.
 
 | ID | Activation | Scope | Required evidence |
 |---|---|---|---|
