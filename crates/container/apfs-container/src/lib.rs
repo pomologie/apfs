@@ -1,4 +1,4 @@
-//! Bounded APFS checkpoint selection and read-only object-map lookup.
+//! Bounded APFS checkpoint selection, object-map lookup and volume discovery.
 #![no_std]
 
 extern crate alloc;
@@ -6,6 +6,7 @@ extern crate alloc;
 mod error;
 mod object_map;
 mod validate;
+mod volume;
 
 use alloc::vec::Vec;
 use core::cmp::Reverse;
@@ -17,8 +18,9 @@ use apfs_format::{
 	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Geometry, Profile, Superblock},
 };
 
-pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported};
+pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported, VolumeError};
 pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType};
+pub use volume::Volume;
 
 const BLOCK_ZERO: BlockAddress = BlockAddress(0);
 const VERSION_TWO: u64 = 1 << 1;

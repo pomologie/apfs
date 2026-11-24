@@ -8,6 +8,7 @@ use apfs_format::{
 };
 
 mod object_map;
+mod volumes;
 
 const BLOCK_BYTES: usize = 4096;
 const DEVICE_BYTES: u64 = 64 << 20;

@@ -13,14 +13,14 @@ use crate::{BLOCK_ZERO, Container, Error, Limit, ObjectMapError, OpenOptions, Pr
 const INVALID_TRANSACTION: TransactionId = TransactionId(0);
 const DEFAULT_MAX_NODES: u16 = 16;
 
-/// Admission budgets for one mapping lookup, including the mapped object when read.
+/// Admission budgets for object and volume lookup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LookupOptions {
-	/// Maximum B-tree nodes to visit, including the root.
+	/// Maximum B-tree nodes to visit on one path, including the root.
 	pub max_nodes: u16,
 	/// Maximum bytes in a single object or node.
 	pub max_object_bytes: usize,
-	/// Sum of bytes read for the map, tree path and optional object.
+	/// Sum of bytes read by the operation, including all paths in volume enumeration.
 	pub max_read_bytes: u64,
 }
 
@@ -106,17 +106,48 @@ impl<S: ReadAt> Container<S> {
 		expected: VirtualType,
 		options: LookupOptions,
 	) -> Result<Option<VirtualObject>, Error<S::Error>> {
-		let mut lookup = Lookup::new(self, options);
+		Lookup::new(self, options).read_virtual_object(id, expected)
+	}
+}
+
+pub(super) struct Lookup<'source, S> {
+	container: &'source Container<S>,
+	probe: Probe<'source, S>,
+	max_nodes: u16,
+}
+
+impl<'source, S: ReadAt> Lookup<'source, S> {
+	pub(super) fn new(container: &'source Container<S>, options: LookupOptions) -> Self {
+		Self {
+			container,
+			probe: Probe {
+				source: container.source(),
+				options: OpenOptions {
+					max_object_bytes: options.max_object_bytes,
+					..OpenOptions::default()
+				},
+				bytes_left: options.max_read_bytes,
+			},
+			max_nodes: options.max_nodes,
+		}
+	}
+
+	pub(super) fn read_virtual_object(
+		&mut self,
+		id: ObjectId,
+		expected: VirtualType,
+	) -> Result<Option<VirtualObject>, Error<S::Error>> {
 		let mut bytes = Vec::new();
+		let checkpoint = self.container.superblock();
 		let key = Key {
 			id,
-			transaction: self.selected.object.transaction,
+			transaction: checkpoint.object.transaction,
 		};
-		let Some(mapping) = lookup.mapping(key, &mut bytes)? else {
+		let Some(mapping) = self.mapping(key, &mut bytes)? else {
 			return Ok(None);
 		};
-		let blocks = u64::from(mapping.size / self.selected.geometry.block_bytes());
-		lookup.read(mapping.address, blocks, &mut bytes)?;
+		let blocks = u64::from(mapping.size / checkpoint.geometry.block_bytes());
+		self.read(mapping.address, blocks, &mut bytes)?;
 		let header =
 			Header::decode(&bytes).map_err(|error| format_error(mapping.address, error))?;
 		if header.id != id || header.transaction != mapping.transaction {
@@ -134,30 +165,6 @@ impl<S: ReadAt> Container<S> {
 			bytes,
 		}))
 	}
-}
-
-struct Lookup<'source, S> {
-	container: &'source Container<S>,
-	probe: Probe<'source, S>,
-	max_nodes: u16,
-}
-
-impl<'source, S: ReadAt> Lookup<'source, S> {
-	fn new(container: &'source Container<S>, options: LookupOptions) -> Self {
-		Self {
-			container,
-			probe: Probe {
-				source: container.source(),
-				options: OpenOptions {
-					max_object_bytes: options.max_object_bytes,
-					..OpenOptions::default()
-				},
-				bytes_left: options.max_read_bytes,
-			},
-			max_nodes: options.max_nodes,
-		}
-	}
-
 	fn mapping(
 		&mut self,
 		key: Key,
@@ -234,7 +241,7 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 		}
 	}
 
-	fn validate_range(
+	pub(super) fn validate_range(
 		&self,
 		address: BlockAddress,
 		blocks: u64,

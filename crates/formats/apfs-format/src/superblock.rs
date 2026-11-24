@@ -68,6 +68,16 @@ const DATA_AREA_OFFSETS: AreaOffsets = AreaOffsets {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockAddress(pub u64);
 
+/// An occupied slot in the container superblock's volume table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VolumeSlot {
+	/// Zero-based index in the on-disk table, including empty slots.
+	pub index: u32,
+	/// Virtual object ID of the volume superblock.
+	pub id: ObjectId,
+}
+
 /// Container geometry bounded by the length of the admitted device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Geometry {
@@ -340,10 +350,20 @@ impl Superblock {
 	/// Nonempty virtual OIDs declared by the superblock, in their original order.
 	/// Resolving these requires a container object map for the selected checkpoint.
 	pub fn volume_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
+		self.volume_slots().map(|slot| slot.id)
+	}
+
+	/// Declared virtual volume IDs with their original superblock table slots.
+	pub fn volume_slots(&self) -> impl Iterator<Item = VolumeSlot> + '_ {
 		self.volume_ids
 			.iter()
 			.copied()
-			.filter(|&id| id != EMPTY_FILESYSTEM_ID)
+			.enumerate()
+			.filter(|&(_, id)| id != EMPTY_FILESYSTEM_ID)
+			.map(|(index, id)| VolumeSlot {
+				index: index as u32,
+				id,
+			})
 	}
 }
 

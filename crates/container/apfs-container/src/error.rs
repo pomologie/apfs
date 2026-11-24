@@ -2,7 +2,10 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use apfs_core::ByteOffset;
-use apfs_format::{object::TransactionId, superblock::BlockAddress};
+use apfs_format::{
+	object::{ObjectId, TransactionId},
+	superblock::BlockAddress,
+};
 
 use crate::Diagnostic;
 
@@ -86,6 +89,30 @@ pub enum ObjectMapError {
 	Cycle,
 }
 
+/// Why a declared volume was not admitted in the selected checkpoint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum VolumeError {
+	/// Invalid or unsupported volume superblock.
+	Format(apfs_format::volume::Error),
+	/// Volume OID lies outside the allocated virtual namespace.
+	InvalidId,
+	/// The occupied slot is beyond the declared volume capacity.
+	SlotBounds(u32),
+	/// The volume table declares the same OID twice.
+	DuplicateId,
+	/// Two resolved volumes share one UUID.
+	DuplicateUuid,
+	/// No visible mapping exists for an occupied table slot.
+	MissingObject,
+	/// The APSB slot index disagrees with its NXSB table index.
+	SlotMismatch { expected: u32, actual: u32 },
+	/// A tree reference aliases another declared object.
+	AliasedTree,
+	/// The filesystem root OID lies outside the allocated virtual namespace.
+	InvalidRootId,
+}
+
 /// A source or container prevented reliable checkpoint selection or lookup.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -123,6 +150,13 @@ pub enum Error<E> {
 		address: BlockAddress,
 		/// Specific failed check.
 		reason: ObjectMapError,
+	},
+	/// Volume discovery failed for a declared OID.
+	Volume {
+		/// Virtual OID in the selected checkpoint's volume table.
+		id: ObjectId,
+		/// Specific failed check.
+		reason: VolumeError,
 	},
 }
 
@@ -170,6 +204,13 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 					address.0
 				)
 			}
+			Self::Volume { id, reason } => {
+				write!(
+					f,
+					"APFS volume discovery failed for OID {}: {reason:?}",
+					id.0
+				)
+			}
 		}
 	}
 }
@@ -181,6 +222,10 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
 			Self::Read { source, .. } => Some(source),
 			Self::ObjectMap {
 				reason: ObjectMapError::Format(error),
+				..
+			} => Some(error),
+			Self::Volume {
+				reason: VolumeError::Format(error),
 				..
 			} => Some(error),
 			_ => None,

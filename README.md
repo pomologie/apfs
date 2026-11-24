@@ -8,7 +8,9 @@ The initial `apfs-format` crate decodes complete NXSB objects and checkpoint map
 
 The selected view resolves container-namespace mappings through a bounded, physical, fixed-record object-map tree. Checked reads validate the mapped object's checksum, identifier, transaction and expected virtual type. Lookup handles visible tombstones and returns errors for unsupported maps, including maps that require encryption or snapshot processing. The current profile and evidence are in the [container specification](docs/features/CONTAINER.md).
 
-Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume UUID. [Fixture provenance](tests/fixtures/native-apfs.json)
+Container volume discovery resolves ordinary unencrypted volume superblocks through that selected view. It enumerates the volume table in slot order or takes an explicit OID. The result includes a checked label, UUID, role, feature masks, allocation declarations and bounded tree references. Filesystem tree traversal is a later milestone.
+
+Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume label and UUID. [Fixture provenance](tests/fixtures/native-apfs.json)
 
 ```sh
 cargo nextest run --locked
@@ -16,4 +18,4 @@ cargo build --locked -p apfs-container --no-default-features --target aarch64-un
 cargo build --locked -p apfs-container --no-default-features --target x86_64-unknown-none
 ```
 
-See the [architecture](ARCHITECTURE.md) and [roadmap](ROADMAP.md) for volume validation and volume-specific object maps, the filesystem reader, and release qualification.
+See the [architecture](ARCHITECTURE.md) and [roadmap](ROADMAP.md) for volume-specific object maps, the filesystem reader, and release qualification.

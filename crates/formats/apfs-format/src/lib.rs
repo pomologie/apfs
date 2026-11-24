@@ -6,6 +6,7 @@ pub mod checkpoint;
 pub mod object;
 pub mod object_map;
 pub mod superblock;
+pub mod volume;
 
 /// A failed APFS object or container admission check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
