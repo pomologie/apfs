@@ -52,3 +52,13 @@ jobs:
             *) expected=$FS_PACKAGE ;;
           esac
           test "$tree" = "$expected"
+
+  object-map-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: cargo install --locked kani-verifier --version '=0.68.0'
+      - run: cargo kani setup
+      - run: bash crates/container/apfs-container/verification/check.sh

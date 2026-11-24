@@ -10,6 +10,10 @@ use apfs_format::{
 
 use crate::{BLOCK_ZERO, Container, Error, Limit, ObjectMapError, OpenOptions, Probe, push};
 
+#[cfg(kani)]
+#[path = "../verification/kani/object_map.rs"]
+mod verification;
+
 mod volume;
 
 use volume::VolumeMap;
@@ -217,11 +221,18 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 			if let Some(expected) = route {
 				validate_route(address, &node, expected)?;
 			}
-			let Some((index, record)) =
-				predecessor(&node, key).map_err(|error| format_error(address, error))?
+			let Some(index) = predecessor(
+				node.len(),
+				|index| node.record(index).map(|record| record.key),
+				key,
+			)
+			.map_err(|error| format_error(address, error))?
 			else {
 				return Ok(None);
 			};
+			let record = node
+				.record(index)
+				.map_err(|error| format_error(address, error))?;
 			match record.value {
 				Value::Child(child) => {
 					let upper_key = if index + 1 < node.len() {
@@ -240,8 +251,12 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 					address = child;
 					upper_transaction = node.header().transaction;
 				}
-				Value::Mapping(Mapping::Object { address, size }) if key.id == record.key.id => {
-					let blocks = u64::from(size / checkpoint.geometry.block_bytes());
+				Value::Mapping(_) => {
+					let Some(mapping) = visible_leaf_mapping(key.id, record) else {
+						return Ok(None);
+					};
+					let address = mapping.address;
+					let blocks = u64::from(mapping.size / checkpoint.geometry.block_bytes());
 					self.validate_range(address, blocks)?;
 					if address_contains(address, blocks, map_address)
 						|| visited
@@ -250,14 +265,8 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 					{
 						return Err(map_error(address, ObjectMapError::Address));
 					}
-					return Ok(Some(VirtualMapping {
-						id: record.key.id,
-						transaction: record.key.transaction,
-						address,
-						size,
-					}));
+					return Ok(Some(mapping));
 				}
-				Value::Mapping(_) => return Ok(None),
 			}
 		}
 	}
@@ -330,20 +339,35 @@ fn validate_route<E>(
 	Ok(())
 }
 
-fn predecessor(node: &Node<'_>, key: Key) -> Result<Option<(usize, Record)>, apfs_format::Error> {
-	let (mut start, mut end) = (0, node.len());
+// Both index routing and leaf visibility use the inclusive predecessor of a
+// strictly ordered node. Reading keys lazily keeps this independent of buffers.
+fn predecessor(
+	len: usize,
+	key_at: impl Fn(usize) -> Result<Key, apfs_format::Error>,
+	key: Key,
+) -> Result<Option<usize>, apfs_format::Error> {
+	let (mut start, mut end) = (0, len);
 	while start < end {
 		let middle = start + (end - start) / 2;
-		if node.record(middle)?.key <= key {
+		if key_at(middle)? <= key {
 			start = middle + 1;
 		} else {
 			end = middle;
 		}
 	}
-	start
-		.checked_sub(1)
-		.map(|index| node.record(index).map(|record| (index, record)))
-		.transpose()
+	Ok(start.checked_sub(1))
+}
+
+fn visible_leaf_mapping(id: ObjectId, record: Record) -> Option<VirtualMapping> {
+	let Value::Mapping(Mapping::Object { address, size }) = record.value else {
+		return None;
+	};
+	(id == record.key.id).then_some(VirtualMapping {
+		id,
+		transaction: record.key.transaction,
+		address,
+		size,
+	})
 }
 
 fn verify_physical_header<E>(
