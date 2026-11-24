@@ -1,0 +1,25 @@
+# apfs roadmap
+
+Independent, nonblocking workstream; no APFS functionality required for dmgez 1.0. Each profile test-qualified. Dates are not commitments.
+
+| Version | Scope | Gate |
+|---|---|---|
+| 0.1.0 | Public spec/fixture ledger, checked object codecs, NXSB, checkpoint detection and inspect | A-CONT-01..02; real native fixtures and malformed tests |
+| 0.2.0 | Object maps, B-trees, volume enumeration and exact XID selection | A-CONT-03..04; independent reference and native metadata comparison |
+| 0.3.0 | Ordinary file/dir/fork/xattr reads, symlinks/hardlinks, names and basic checking | A-READ-01..02; native content/metadata and bounded parser tests |
+| 0.4.0 | Expanded read profiles: compression, snapshots, clone/shared extent observation, multi-volume, additional flags as proven | A-READ-03..04; per-profile gates, never fake unsupported content |
+| 0.5.0 | Fresh single-volume data-container constructor, deterministic raw plan and allocation accounting | A-BUILD-01..03; native fsck/mount/read, independent oracle |
+| 0.6.0 | Optional dmgez integration and cross-platform packaging profile | Pinned qualified APFS build/read, native DMG attach; no default linkage |
+| 0.7.0 | CoW mutation, transaction commit, crash consistency | A-MUT-01; fault injection, native fsck/read/write, no corruption |
+| 0.8+ | Multi-volume writes, snapshot/clone lifecycle, advanced allocation | A-MUT-02; reference accounting and persistence qualification |
+| Later | Authorized encryption, sealed read, Fusion, system roles, Charles integration | A-MUT-03..04; independent security/IP review, kernel and platform tests |
+| 1.0.0 | Stable supported profile API, release evidence and security docs | Advertised features all pass; advanced optional profiles can remain absent |
+
+Start by collecting lawful synthetic APFS fixtures across Sequoia-era and selected modern OS versions. Document format evidence gaps, not assume current layout from 2020 reference. Maintain exact unsupported flags and check native behavior. Read-only parser first, then independent writer only with allocator/checkpoint qualification. No public claim of writable support without real crash and fsck evidence. Do not block dmgez or hfsplus releases on APFS research. Package names checked before registry publication.
+
+## Verification integration
+
+The local `VERIFICATION.md` and `verification/obligations.json` define mandatory profile-specific verification gates in addition to the original acceptance tests. Apply ecosystem standard EVS-1 (copy `shared/VERIFICATION.md` as `docs/architecture/ECOSYSTEM_VERIFICATION.md`). No required proof, model check, native test or critical fault gate can be substituted by coverage or a self-generated round trip. `cargo-nextest`, property tests, fuzz/corpus replay, coverage and deterministic architecture checks are required; formal methods activate at the milestones in the obligation registry.
+
+## Cross-cutting release gate: A-PORT-01
+Beginning at 0.1.0, every newly introduced kernel-facing crate must pass EES-1 §3a on both provisional bare-metal targets and preserve hosted semantic parity. Apply incrementally to later reader/writer/transaction features; std is allowed in standalone bulk builders and adapters. Actual Charles driver qualification remains a later milestone.

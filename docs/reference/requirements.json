@@ -1,0 +1,325 @@
+{
+  "project": "apfs",
+  "schema_version": 1,
+  "requirements": [
+    {
+      "id": "A-CONT-01",
+      "milestone": "0.1.0",
+      "owner": "docs/features/CONTAINER.md",
+      "requirement": "Checked container geometry, object headers/checksums and supported flags.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-CONT-01-T01",
+        "A-CONT-01-T02",
+        "A-CONT-01-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-CONT-02",
+      "milestone": "0.1.0",
+      "owner": "docs/features/CONTAINER.md",
+      "requirement": "Select complete valid checkpoint rather than newest XID alone.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-CONT-02-T01",
+        "A-CONT-02-T02",
+        "A-CONT-02-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-CONT-03",
+      "milestone": "0.2.0",
+      "owner": "docs/features/CONTAINER.md",
+      "requirement": "Resolve physical, ephemeral and virtual objects with correct map namespace/XID.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-CONT-03-T01",
+        "A-CONT-03-T02",
+        "A-CONT-03-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-CONT-04",
+      "milestone": "0.2.0",
+      "owner": "docs/features/CONTAINER.md",
+      "requirement": "Validate APFS B-trees and enumerate explicit volume views.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-CONT-04-T01",
+        "A-CONT-04-T02",
+        "A-CONT-04-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-READ-01",
+      "milestone": "0.3.0",
+      "owner": "docs/features/READ.md",
+      "requirement": "Exact ordinary file/dir/name/link and metadata semantics.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-READ-01-T01",
+        "A-READ-01-T02",
+        "A-READ-01-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-READ-02",
+      "milestone": "0.3.0",
+      "owner": "docs/features/READ.md",
+      "requirement": "Data extents, sparse and xattr/resource stream correctness.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-READ-02-T01",
+        "A-READ-02-T02",
+        "A-READ-02-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-READ-03",
+      "milestone": "0.4.0",
+      "owner": "docs/features/READ.md",
+      "requirement": "Snapshot, compression and shared extents only in admitted profiles.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-READ-03-T01",
+        "A-READ-03-T02",
+        "A-READ-03-T03",
+        "A-READ-03-T04"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-READ-04",
+      "milestone": "0.4.0",
+      "owner": "docs/features/READ.md",
+      "requirement": "Read-only inspect/check diagnostics and bounded lazy reads.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-READ-04-T01",
+        "A-READ-04-T02"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-BUILD-01",
+      "milestone": "0.5.0",
+      "owner": "docs/features/BUILD.md",
+      "requirement": "Plan deterministic object/volume identity, geometry and required record trees.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-BUILD-01-T01",
+        "A-BUILD-01-T02"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-BUILD-02",
+      "milestone": "0.5.0",
+      "owner": "docs/features/BUILD.md",
+      "requirement": "Coherent allocation, free queues, reaper, map and checkpoint for fresh profile.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-BUILD-02-T01",
+        "A-BUILD-02-T02",
+        "A-BUILD-02-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-BUILD-03",
+      "milestone": "0.5.0",
+      "owner": "docs/features/BUILD.md",
+      "requirement": "Sealed deterministic raw constructor and dmgez-adaptable I/O.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-BUILD-03-T01",
+        "A-BUILD-03-T02",
+        "A-BUILD-03-T03"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-MUT-01",
+      "milestone": "0.7.0",
+      "owner": "docs/features/TRANSACTIONS.md",
+      "requirement": "CoW mutation with qualified checkpoint commit and recovery.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-MUT-01-T01",
+        "A-MUT-01-T02",
+        "A-MUT-01-T03",
+        "A-MUT-01-T04"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-MUT-02",
+      "milestone": "0.8+",
+      "owner": "docs/features/TRANSACTIONS.md",
+      "requirement": "Snapshot/clone/multivolume write lifetime and reclamation accounting.",
+      "source_ids": [
+        "S12",
+        "S13"
+      ],
+      "acceptance_tests": [
+        "A-MUT-02-T01",
+        "A-MUT-02-T02",
+        "A-MUT-02-T03",
+        "A-MUT-02-T04"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-MUT-03",
+      "milestone": "later",
+      "owner": "docs/features/TRANSACTIONS.md",
+      "requirement": "Authorized crypto, sealed metadata and advanced profile qualification.",
+      "source_ids": [
+        "S12",
+        "S20"
+      ],
+      "acceptance_tests": [
+        "A-MUT-03-T01",
+        "A-MUT-03-T02"
+      ],
+      "status": "planned",
+      "mandatory": false
+    },
+    {
+      "id": "A-MUT-04",
+      "milestone": "later",
+      "owner": "docs/features/TRANSACTIONS.md",
+      "requirement": "Charles-ready kernel boundary with no_std and actual device qualification.",
+      "source_ids": [
+        "S12",
+        "S20"
+      ],
+      "acceptance_tests": [
+        "A-MUT-04-T01",
+        "A-MUT-04-T02"
+      ],
+      "status": "planned",
+      "mandatory": false
+    },
+    {
+      "id": "A-VER-01",
+      "milestone": "0.1.0",
+      "owner": "VERIFICATION.md",
+      "requirement": "Maintain independent test, fault, fuzz, coverage and architecture apparatus from bootstrap.",
+      "source_ids": [
+        "V04",
+        "V07",
+        "V10"
+      ],
+      "acceptance_tests": [
+        "A-VER-01-T01"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-VER-02",
+      "milestone": "0.1.0",
+      "owner": "VERIFICATION.md",
+      "requirement": "Track all activated proof obligations and evidence; run critical bounded Rust safety gates.",
+      "source_ids": [
+        "V04",
+        "V07",
+        "V10"
+      ],
+      "acceptance_tests": [
+        "A-VER-02-T01"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-VER-03",
+      "milestone": "1.0.0",
+      "owner": "VERIFICATION.md",
+      "requirement": "Qualify activated Lean, protocol and fault gates; retain source-linked evidence and reviewed assumptions.",
+      "source_ids": [
+        "V01",
+        "V02",
+        "V03",
+        "V05",
+        "V10"
+      ],
+      "acceptance_tests": [
+        "A-VER-03-T01"
+      ],
+      "status": "planned",
+      "mandatory": true
+    },
+    {
+      "id": "A-PORT-01",
+      "milestone": "0.1.0",
+      "owner": "ARCHITECTURE.md",
+      "requirement": "Mandatory no_std + alloc kernel-facing engine profiles from first crate release; both provisional bare-metal targets; std permitted in bulk builders and host adapters; actual kernel qualification separate.",
+      "source_ids": [],
+      "acceptance_tests": [
+        "A-PORT-01-T01",
+        "A-PORT-01-T02",
+        "A-PORT-01-T03",
+        "A-PORT-01-T04"
+      ],
+      "status": "planned",
+      "mandatory": true
+    }
+  ]
+}

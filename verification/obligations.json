@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "project": "apfs",
+  "methods": {
+    "kani": "bounded Rust",
+    "lean-linked": "implementation-linked theorem",
+    "tlc": "finite protocol model",
+    "loom": "instrumented concurrency",
+    "shuttle": "seeded schedules",
+    "miri": "UB check",
+    "property": "property test",
+    "state-machine": "reference model test",
+    "fuzz": "fuzz/corpus",
+    "differential": "independent comparison",
+    "native": "native Apple oracle",
+    "fault": "failure injection",
+    "integration": "real integration",
+    "snapshots": "reviewed golden/screenshot",
+    "mutation": "mutation test"
+  },
+  "obligations": [
+    {
+      "id": "A-V01",
+      "activation": "0.1.0",
+      "scope": "container",
+      "requirement_ids": [
+        "A-CONT-01"
+      ],
+      "target": "apfs-format / checked geometry and object header",
+      "property": "Every admitted block range, count, object header and checksum window bounded; required unknown flags rejected before traversal.",
+      "assumptions_and_initial_bounds": "Kani full-width scalars + 0..8 entries, real object sizes via fuzz; checksum primitive independently tested.",
+      "required_methods": [
+        "kani",
+        "property",
+        "fuzz",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "invalid block count causes large allocation or offset wrap",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V02",
+      "activation": "0.1.0",
+      "scope": "checkpoint discovery",
+      "requirement_ids": [
+        "A-CONT-02"
+      ],
+      "target": "apfs-container / candidate selection",
+      "property": "Selected checkpoint is complete under qualified profile, validates descriptors/mappings/checksums and uses consistent XID; newest incomplete candidate not silently selected.",
+      "assumptions_and_initial_bounds": "TLC 3 candidates, 2 descriptor ring slots (plus larger fixtures), torn/missing descriptors, valid fallback explicitly allowed, not infer complete solely from XID.",
+      "required_methods": [
+        "tlc",
+        "property",
+        "fuzz",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "newest NXSB checksum valid but missing referenced checkpoint map",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V03",
+      "activation": "0.2.0",
+      "scope": "object mapping",
+      "requirement_ids": [
+        "A-CONT-03"
+      ],
+      "target": "apfs-container / object-map resolution",
+      "property": "Virtual object resolves to visible version at requested XID (or qualified tombstone); physical/ephemeral/virtual identities never mixed; returned physical range bounded.",
+      "assumptions_and_initial_bounds": "Kani <=8 versions, full width XID comparisons; independent sorted-map model; native multi-version fixture.",
+      "required_methods": [
+        "kani",
+        "property",
+        "fuzz",
+        "differential"
+      ],
+      "negative_witness": "latest object map leaks future version into snapshot",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V04",
+      "activation": "0.2.0",
+      "scope": "B-trees/volume selection",
+      "requirement_ids": [
+        "A-CONT-04"
+      ],
+      "target": "apfs-format + apfs-reader / TOC and tree validator",
+      "property": "Accepted node descriptor/key/value ranges valid and nonoverlapping as required by type; routing follows comparator; volume/root references consistent with selected checkpoint.",
+      "assumptions_and_initial_bounds": "Kani <=8 records and small byte windows; fixed/variable TOC types; native node-size fixtures and cycles.",
+      "required_methods": [
+        "kani",
+        "property",
+        "fuzz",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "value offset sign interpreted incorrectly, overlaps TOC",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V05",
+      "activation": "0.3.0",
+      "scope": "ordinary file read",
+      "requirement_ids": [
+        "A-READ-01",
+        "A-READ-02"
+      ],
+      "target": "apfs-reader / name lookup, logical extents and forks",
+      "property": "Each admitted file read exact logical bytes; holes zero only when explicit; xattrs/forks/link identities distinct; no stale volume or future XID reference.",
+      "assumptions_and_initial_bounds": "Small abstract trees <=12 files, <=8 extents; native case/hash collision/metadata fixtures.",
+      "required_methods": [
+        "property",
+        "fuzz",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "hash equality treated as full filename equality; unwritten extent returns unrelated bytes",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V06",
+      "activation": "0.4.0",
+      "scope": "snapshots/shared/compressed reads",
+      "requirement_ids": [
+        "A-READ-03",
+        "A-READ-04"
+      ],
+      "target": "apfs-reader / immutable view and snapshot selection",
+      "property": "Read of existing snapshot independent of newer commits; shared extents resolve correct logical owners; unsupported encrypted/compressed/role profiles reported not read as valid.",
+      "assumptions_and_initial_bounds": "Native snapshots/clone fixtures; exact supported flag ledger; read-only observation not refcount write proof.",
+      "required_methods": [
+        "property",
+        "fuzz",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "snapshot resolves through current root rather than pinned XID",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V07",
+      "activation": "0.4.0",
+      "scope": "mapping proof",
+      "requirement_ids": [
+        "A-CONT-03",
+        "A-CONT-04",
+        "A-READ-02"
+      ],
+      "target": "apfs-container / pure map lookup, checked interval math",
+      "property": "Extracted Rust predecessor lookup and interval splitting refine mathematical map restricted to XID, correctly treating absent/tombstone states and full-width boundaries.",
+      "assumptions_and_initial_bounds": "Safe sequential subset; no proof of full B-tree graph/native implementation; external geometry validated.",
+      "required_methods": [
+        "lean-linked",
+        "property",
+        "differential"
+      ],
+      "negative_witness": "off-by-one on exact XID or tombstone version",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V08",
+      "activation": "0.5.0",
+      "scope": "fresh allocation",
+      "requirement_ids": [
+        "A-BUILD-01",
+        "A-BUILD-02"
+      ],
+      "target": "apfs-builder / object planner and free-space accounting",
+      "property": "Fresh qualified profile allocation covers each planned region exactly once; reserve required metadata/checkpoint objects; every object resolves in correct namespace and referenced blocks not free.",
+      "assumptions_and_initial_bounds": "Kani small 32-block geometry and 8 reservations; pure reference owner sets; no clone/snapshot mutation in fresh profile.",
+      "required_methods": [
+        "kani",
+        "property",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "spaceman free count includes live object map block",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V09",
+      "activation": "0.5.0",
+      "scope": "sealed plan",
+      "requirement_ids": [
+        "A-BUILD-03"
+      ],
+      "target": "apfs-builder / finalized raw sector plan",
+      "property": "Stable deterministic raw plan has exact complete coverage, source bounds and output equivalence for random/serial reads; no metadata range changes after sealing.",
+      "assumptions_and_initial_bounds": "<=8 ranges Kani; immutable source contract and native data-container qualification; bounded payload memory.",
+      "required_methods": [
+        "kani",
+        "property",
+        "fault",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "unplanned metadata gap written as zeros",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V10",
+      "activation": "0.7.0",
+      "scope": "CoW commit",
+      "requirement_ids": [
+        "A-MUT-01"
+      ],
+      "target": "apfs-writer / transaction persistence protocol",
+      "property": "Published checkpoint never references unpersisted required objects; after crash qualified reader sees consistent old/new complete checkpoint, not mixed versions; retired objects retained while reachable.",
+      "assumptions_and_initial_bounds": "TLC <=3 tx, 8 blocks, 2 retained roots, 2 ring slots; barriers, loss/torn descriptors, crash during recovery. Actual format-specific commit order and device model separately validated.",
+      "required_methods": [
+        "tlc",
+        "fault",
+        "state-machine",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "checkpoint descriptor durable before object map/root",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V11",
+      "activation": "0.8+",
+      "scope": "snapshot/clone lifetime",
+      "requirement_ids": [
+        "A-MUT-02"
+      ],
+      "target": "apfs-writer / refcount and reachability model",
+      "property": "Every reachable block through current/checkpoint/snapshot/clone roots remains allocated; reclamation occurs only when no retained references or pending required use, accounting conservation incl deferred frees.",
+      "assumptions_and_initial_bounds": "TLC <=3 roots/2 snapshots/2 clones/8 blocks; Lean pure reference/lifetime accounting theorem linked to production helper before promotion; native tests.",
+      "required_methods": [
+        "tlc",
+        "lean-linked",
+        "state-machine",
+        "fault",
+        "native"
+      ],
+      "negative_witness": "delete original releases block still referenced by clone",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V12",
+      "activation": "later",
+      "scope": "crypto/advanced",
+      "requirement_ids": [
+        "A-MUT-03"
+      ],
+      "target": "apfs optional security and advanced-profile code",
+      "property": "Only authenticated/qualified data and authorized credentials are accepted per exact algorithm profile; key material scoped/redacted; unsupported modes do not claim integrity; sealed volume check separate from Apple trust policy.",
+      "assumptions_and_initial_bounds": "External cryptographic primitives and Apple trust policies outside proof; security/legal review plus fixture-specific new obligations; no brute force or bypass.",
+      "required_methods": [
+        "property",
+        "fuzz",
+        "fault",
+        "differential",
+        "native"
+      ],
+      "negative_witness": "incorrect password/unsupported tag accepted; logs expose key",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V13",
+      "activation": "later",
+      "scope": "Charles/device adapter",
+      "requirement_ids": [
+        "A-MUT-04"
+      ],
+      "target": "apfs device and kernel adapter / I/O ordering",
+      "property": "No pointer/offset escape, incorrect device barrier or stale view on actual qualified device; kernel-specific integration independently tested, not inferred from no_std.",
+      "assumptions_and_initial_bounds": "Device alignment, interrupt/scheduling/flush assumptions recorded; kernel harness once Charles interface exists.",
+      "required_methods": [
+        "miri",
+        "property",
+        "fault",
+        "integration"
+      ],
+      "negative_witness": "incompatible block size or failed flush ignored",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "A-V14",
+      "activation": "1.0.0",
+      "scope": "supported engine",
+      "requirement_ids": [
+        "A-CONT-03",
+        "A-CONT-04",
+        "A-BUILD-02"
+      ],
+      "target": "apfs-format + apfs-container / selected pure verified helpers",
+      "property": "Production-linked proof of checked lookup and allocator arithmetic preserves exact namespace/range and allocated/free disjointness for validated states.",
+      "assumptions_and_initial_bounds": "Lean spec and extracted functions; format variants, disk I/O, snapshots and writer not implied unless separately qualified.",
+      "required_methods": [
+        "lean-linked",
+        "property",
+        "mutation",
+        "differential"
+      ],
+      "negative_witness": "integer overflow permits duplicate ownership",
+      "mandatory_when_activated": true,
+      "status": "planned",
+      "evidence": []
+    }
+  ]
+}

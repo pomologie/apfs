@@ -1,0 +1,618 @@
+{
+  "project": "apfs",
+  "schema_version": 1,
+  "tests": [
+    {
+      "id": "A-CONT-01-T01",
+      "requirement_ids": [
+        "A-CONT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Native data container from synthetic tree; mutate block size/count/type/checksum, unsupported required flag. Reject before allocation and label unsupported profiles.",
+      "oracle": "native APFS fixture; checksum ledger; fuzz",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-02-T01",
+      "requirement_ids": [
+        "A-CONT-02"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Descriptor ring wrap, torn latest, malformed/missing map, mismatched XID; choose older valid with diagnostic only when allowed; no valid candidate fails.",
+      "oracle": "native and synthetic checkpoint fixtures",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-03-T01",
+      "requirement_ids": [
+        "A-CONT-03"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Multiple versions same OID, deleted record, newer-only map, wrong namespace/type; exact historical lookup and bounded failure.",
+      "oracle": "known object-map fixtures; native inspection",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-04-T01",
+      "requirement_ids": [
+        "A-CONT-04"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Multi-level fixed/variable key trees and multi-volume native container; bad TOC, pointer cycle, wrong height; no first-volume guess, correct roles/IDs.",
+      "oracle": "native diskutil; independent reader overlap",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-01-T01",
+      "requirement_ids": [
+        "A-READ-01"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Native case modes, Unicode/hash collisions, symlink/hardlink, nested dirs, variable inode fields, timestamps/modes; compare tree and native lookups.",
+      "oracle": "native mount/stat/readlink; independent reader",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-02-T01",
+      "requirement_ids": [
+        "A-READ-02"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Fragmented and sparse files, inline and external attr, resource fork, malformed extent and unavailable metadata; exact logical bytes and typed failures.",
+      "oracle": "native bytes/xattrs; fsck; fuzz",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-03-T01",
+      "requirement_ids": [
+        "A-READ-03"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Native multiple snapshots with changed file, clone/shared extents, qualified compressed types; verify historical read and decoded lengths, unsupported encryption/type fails.",
+      "oracle": "native snapshots/file read; independent decoder",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-04-T01",
+      "requirement_ids": [
+        "A-READ-04"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Large container read counters, inconsistent allocator/tree/refs, unsupported flags, corrupt object; no false pass or repair and no whole disk load for metadata.",
+      "oracle": "native fsck_apfs; I/O limits",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-01-T01",
+      "requirement_ids": [
+        "A-BUILD-01"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Tiny empty volume and complex tree; exact stable IDs, layout overlap and capacity checks, correct tree/node checksums, unsupported feature flags never set.",
+      "oracle": "property; native and independent readers",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-02-T01",
+      "requirement_ids": [
+        "A-BUILD-02"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Compare native raw structure invariants, test missing/dangling/free overlapping blocks; require native fsck_apfs clean and mount, verify tree metadata.",
+      "oracle": "native fsck/mount",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-03-T01",
+      "requirement_ids": [
+        "A-BUILD-03"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Write nonseekable, random read, multi-GiB files and attrs, source changes, 3 hosts canonical digest. Native mount/read, memory bounds; separate APFS DMG layout qualification.",
+      "oracle": "native fsck/mount; instrumented source",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-01-T01",
+      "requirement_ids": [
+        "A-MUT-01"
+      ],
+      "milestone": "0.7.0",
+      "scenario": "Create/rename/write/truncate/unlink, failure at each persistence boundary, ENOSPC, repeated ring wrap, pinned readers; recover valid old/new state and native fsck.",
+      "oracle": "fault device model; native mutation/check",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-02-T01",
+      "requirement_ids": [
+        "A-MUT-02"
+      ],
+      "milestone": "0.8+",
+      "scenario": "Partial clone writes/truncate/delete, live snapshot retained, multi-volume quota/space pressure, crash and reference underflow; validate all surviving bytes/reachable allocation.",
+      "oracle": "native fsck; invariant model",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-03-T01",
+      "requirement_ids": [
+        "A-MUT-03"
+      ],
+      "milestone": "later",
+      "scenario": "Separate authorized fixtures with correct/wrong credential, key corruption, unsupported algorithm, tamper and secret redaction; independently verify qualified seal/hash structures without claiming boot trust.",
+      "oracle": "native tests; security/IP review",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-04-T01",
+      "requirement_ids": [
+        "A-MUT-04"
+      ],
+      "milestone": "later",
+      "scenario": "Compile portable core, adapt mock/actual block device, barrier/fault/concurrency and mount lifecycle tests; no OS boot/security claims from library alone.",
+      "oracle": "kernel/device integration; separate review",
+      "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-VER-01-T01",
+      "requirement_ids": [
+        "A-VER-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Run nextest, unit/property and fuzz corpus, negative graph test, 500-line policy and pinned native synthetic fixtures. Inject malformed geometry and verify no panic/escape; critical coverage and exceptions audited.",
+      "oracle": "EVS-1; cargo-nextest; proptest; native checker",
+      "expected": "All required gates in the active scope pass with current evidence; injected invalid evidence is rejected.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-VER-02-T01",
+      "requirement_ids": [
+        "A-VER-02"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Reject missing, stale, dirty, timed-out, unsupported, wrong-profile or vacuous required verification results; run actual Kani on admitted range/geometry helpers with bounds and non-vacuity.",
+      "oracle": "EVS-1; Kani; release evidence validator",
+      "expected": "All required gates in the active scope pass with current evidence; injected invalid evidence is rejected.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-VER-03-T01",
+      "requirement_ids": [
+        "A-VER-03"
+      ],
+      "milestone": "1.0.0",
+      "scenario": "Regenerate actual Rust extraction and verify named theorem dependency closure with no admitted placeholders; run activated TLC/actual fault/counterexample tests, native tests and mutation review; deliberately alter proof target hash and confirm evidence invalidated.",
+      "oracle": "EVS-1; Lean/hax; TLA+/TLC; native oracle; cargo-mutants",
+      "expected": "All required gates in the active scope pass with current evidence; injected invalid evidence is rejected.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-01-T02",
+      "requirement_ids": [
+        "A-CONT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "NXSB block size/count overflow, object checksum mismatch, unknown required flag",
+      "oracle": "Kani; native fixture",
+      "expected": "Reject before allocation or expose header-only unsupported profile",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-01-T03",
+      "requirement_ids": [
+        "A-CONT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Physical, virtual and ephemeral identifier same numeric value",
+      "oracle": "typed object resolver model",
+      "expected": "No namespace conflation",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-02-T02",
+      "requirement_ids": [
+        "A-CONT-02"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Descriptor ring wraps; newest candidate checksum valid but required map absent",
+      "oracle": "native and reference state model",
+      "expected": "Choose prior complete qualified candidate with diagnostic or fail",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-02-T03",
+      "requirement_ids": [
+        "A-CONT-02"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "No valid candidate; partial descriptor and inconsistent XID",
+      "oracle": "fuzz; native",
+      "expected": "No fabricated checkpoint or silent current-root selection",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-03-T02",
+      "requirement_ids": [
+        "A-CONT-03"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Object version at XID 5, 9, deleted at 12; query XID 4/5/8/9/12",
+      "oracle": "abstract sorted map",
+      "expected": "No object before 5; correct predecessor; deletion at 12",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-03-T03",
+      "requirement_ids": [
+        "A-CONT-03"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Out-of-range object mapping or mismatched storage type",
+      "oracle": "Kani and I/O spy",
+      "expected": "Reject, not read arbitrary physical block",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-04-T02",
+      "requirement_ids": [
+        "A-CONT-04"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Fixed/variable TOC node with truncated or overlapping ranges",
+      "oracle": "fuzz; independent decoder",
+      "expected": "Reject safely; no integer sign misinterpretation",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-CONT-04-T03",
+      "requirement_ids": [
+        "A-CONT-04"
+      ],
+      "milestone": "0.2.0",
+      "scenario": "Two volumes with same numeric inode ID; cycle in tree",
+      "oracle": "native multivolume fixture",
+      "expected": "View-scoped identity; bounded diagnostic for cycle",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-01-T02",
+      "requirement_ids": [
+        "A-READ-01"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Case-fold/hash collision: distinct full names with same hash",
+      "oracle": "native name oracle",
+      "expected": "Full comparison distinguishes names; qualified collision rules",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-01-T03",
+      "requirement_ids": [
+        "A-READ-01"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Symlink, hard links and inaccessible target across volume",
+      "oracle": "native metadata",
+      "expected": "Exact link semantics; no implicit host access",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-02-T02",
+      "requirement_ids": [
+        "A-READ-02"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Sparse extent, partial read across hole and data, nonempty resource fork",
+      "oracle": "native raw comparison",
+      "expected": "Only explicit holes zero; correct bytes/fork",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-02-T03",
+      "requirement_ids": [
+        "A-READ-02"
+      ],
+      "milestone": "0.3.0",
+      "scenario": "Extent outside selected container/volume; xattr overflow",
+      "oracle": "Kani; fuzz",
+      "expected": "Typed bounds error before allocation",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-03-T02",
+      "requirement_ids": [
+        "A-READ-03"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Snapshot at XID before current modification",
+      "oracle": "native snapshot fixture",
+      "expected": "Snapshot bytes unchanged, no future object resolution",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-03-T03",
+      "requirement_ids": [
+        "A-READ-03"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Clone shares blocks but independent logical offset map",
+      "oracle": "native clone fixture",
+      "expected": "Correct each file's data; no claim of writable clone support",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-03-T04",
+      "requirement_ids": [
+        "A-READ-03"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Each compressed type, invalid declared length, unsupported encryption",
+      "oracle": "native fixture; independent decoder",
+      "expected": "Only qualified codecs decode; unsupported/length diagnostics explicit",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-READ-04-T02",
+      "requirement_ids": [
+        "A-READ-04"
+      ],
+      "milestone": "0.4.0",
+      "scenario": "Huge container metadata inspection and selective read",
+      "oracle": "read counter",
+      "expected": "Only required ranges read, budgets enforced",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-01-T02",
+      "requirement_ids": [
+        "A-BUILD-01"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Same manifest in different order, same fixed identity/geometry profile",
+      "oracle": "reference plan and digest",
+      "expected": "Deterministic block map, stable object IDs and exact output",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-02-T02",
+      "requirement_ids": [
+        "A-BUILD-02"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Spaceman free count includes reachable root or checkpoint block",
+      "oracle": "explicit owner sets; fsck",
+      "expected": "Reject inconsistency; all live blocks allocated",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-02-T03",
+      "requirement_ids": [
+        "A-BUILD-02"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Fresh builder object-map/root mismatch or free queue dangling",
+      "oracle": "independent checker",
+      "expected": "No native qualification; reject before publication",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-03-T02",
+      "requirement_ids": [
+        "A-BUILD-03"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Random reads split at object boundaries vs full raw output",
+      "oracle": "raw byte oracle",
+      "expected": "Exact equivalence; source short read fails",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-BUILD-03-T03",
+      "requirement_ids": [
+        "A-BUILD-03"
+      ],
+      "milestone": "0.5.0",
+      "scenario": "Fresh unencrypted single-volume built on each host, read by macOS",
+      "oracle": "native checker",
+      "expected": "Native fsck/mount and complete manifest metadata comparison",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-01-T02",
+      "requirement_ids": [
+        "A-MUT-01"
+      ],
+      "milestone": "0.7.0",
+      "scenario": "Crash before/after each object write, barrier and descriptor publication",
+      "oracle": "TLC; fault device; native fsck",
+      "expected": "Only complete old/new qualified checkpoint, no dangling references",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-01-T03",
+      "requirement_ids": [
+        "A-MUT-01"
+      ],
+      "milestone": "0.7.0",
+      "scenario": "Reader pins old XID during new transaction, ENOSPC and abort",
+      "oracle": "state machine; native",
+      "expected": "Old read remains correct; no reclaimed live or pinned blocks",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-01-T04",
+      "requirement_ids": [
+        "A-MUT-01"
+      ],
+      "milestone": "0.7.0",
+      "scenario": "Ring wrap, torn commit marker, restart twice",
+      "oracle": "fault model and native",
+      "expected": "Choose complete candidate or explicit error; recovery idempotent",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-02-T02",
+      "requirement_ids": [
+        "A-MUT-02"
+      ],
+      "milestone": "0.8+",
+      "scenario": "Delete original file while clone/snapshot retains shared extent",
+      "oracle": "reference reachability model",
+      "expected": "Block not freed until final required reference gone",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-02-T03",
+      "requirement_ids": [
+        "A-MUT-02"
+      ],
+      "milestone": "0.8+",
+      "scenario": "Partial shared extent overwrite and truncation, snapshot deletion",
+      "oracle": "model; native",
+      "expected": "No unintended mutation; conservation incl deferred free",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-02-T04",
+      "requirement_ids": [
+        "A-MUT-02"
+      ],
+      "milestone": "0.8+",
+      "scenario": "Two volumes allocate from same container under quota/ENOSPC",
+      "oracle": "reference set ledger",
+      "expected": "No double ownership or independent double-counting",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-03-T02",
+      "requirement_ids": [
+        "A-MUT-03"
+      ],
+      "milestone": "later",
+      "scenario": "Wrong credentials, invalid keybag lengths, corrupt authentication data",
+      "oracle": "authorized native fixture",
+      "expected": "Bounded failure/redacted report; exact mode semantics, no security bypass",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-MUT-04-T02",
+      "requirement_ids": [
+        "A-MUT-04"
+      ],
+      "milestone": "later",
+      "scenario": "Device 4K alignment, failed flush and hot unplug during read/write",
+      "oracle": "fault device and Charles test target",
+      "expected": "Explicit failure; no durability claim; kernel integration separately qualified",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-PORT-01-T01",
+      "requirement_ids": [
+        "A-PORT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Isolate every active kernel-facing crate with defaults disabled and explicit supported kernel features; check on aarch64-unknown-none and x86_64-unknown-none; build at release.",
+      "oracle": "Pinned rustc/Cargo target checks and release code generation",
+      "expected": "Both targets pass for each active profile; record exact commands, features and toolchain.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-PORT-01-T02",
+      "requirement_ids": [
+        "A-PORT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Inspect target-specific normal dependency graph; inject a test-only negative feature fixture selecting a prohibited host/std dependency.",
+      "oracle": "Architecture checker and Cargo target feature graph",
+      "expected": "Real profile accepted; deliberately leaking dependency rejected; host proc macros not confused with target-side dependencies.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-PORT-01-T03",
+      "requirement_ids": [
+        "A-PORT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Run same semantic fixtures against no_std-configured engine in hosted test harness and std-enabled engine; compare metadata, bytes and typed errors.",
+      "oracle": "Shared native-derived fixtures and independent expectations",
+      "expected": "Both configurations match the qualified semantics; no host-only logic substitute.",
+      "status": "planned",
+      "evidence": null
+    },
+    {
+      "id": "A-PORT-01-T04",
+      "requirement_ids": [
+        "A-PORT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Verify hosted-only builder/adapter or optional codec features do not become required by kernel profiles; test supported feature variants separately.",
+      "oracle": "Feature graph and compilation matrix",
+      "expected": "Hosted features remain available on supported hosts; kernel graph excludes hosted-only dependencies and explicitly labels unsupported combinations.",
+      "status": "planned",
+      "evidence": null
+    }
+  ]
+}
