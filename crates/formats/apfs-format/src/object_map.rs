@@ -43,6 +43,7 @@ const PHYSICAL_TREE_FLAG: u32 = 1 << 4;
 const SEQUENTIAL_INSERT_FLAG: u32 = 1 << 1;
 const KNOWN_TREE_FLAGS: u32 = PHYSICAL_TREE_FLAG | SEQUENTIAL_INSERT_FLAG;
 const NONE_OFFSET: u16 = u16::MAX;
+const LOCATION_BYTES: usize = 2 * size_of::<u16>();
 
 const KEY_BYTES: usize = 2 * size_of::<u64>();
 const VALUE_BYTES: usize = 2 * size_of::<u32>() + size_of::<i64>();
@@ -161,7 +162,7 @@ pub struct Record {
 	pub value: Value,
 }
 
-/// A checked table of contents and disjoint fixed-size key/value regions.
+/// A checked table of contents, records, and available key/value spans.
 #[derive(Debug)]
 pub struct Node<'block> {
 	bytes: &'block [u8],
@@ -177,8 +178,8 @@ impl<'block> Node<'block> {
 	/// Verifies a physical root or child node and every occupied key/value slot.
 	///
 	/// # Errors
-	/// Rejects wrong types, invalid checksums, invalid ranges and overlapping
-	/// slots, invalid record ordering, and node flags outside this profile.
+	/// Rejects wrong types, invalid checksums, invalid or overlapping record and
+	/// free spans, invalid record ordering, and flags outside this profile.
 	pub fn decode(bytes: &'block [u8], geometry: Geometry, root: bool) -> Result<Self, Error> {
 		if bytes.len() != geometry.block_bytes() as usize {
 			return Err(Error::InvalidGeometry);
@@ -212,13 +213,6 @@ impl<'block> Node<'block> {
 		let free_space = location(bytes, NODE_FREE_SPACE, table.end)?;
 		if count > table.len() / SLOT_BYTES || free_space.end > values_end {
 			return Err(Error::InvalidObjectMap);
-		}
-		for offset in [NODE_KEY_FREE_LIST, NODE_VALUE_FREE_LIST] {
-			if u16_at(bytes, offset)? != NONE_OFFSET
-				|| u16_at(bytes, offset + size_of::<u16>())? != 0
-			{
-				return Err(Error::UnsupportedObjectMapFlags(u32::from(flags)));
-			}
 		}
 		let node = Self {
 			bytes,
@@ -348,6 +342,55 @@ impl<'block> Node<'block> {
 				Value::Mapping(Mapping::Deleted) => {}
 			}
 			previous = Some(record.key);
+		}
+		self.validate_free_list(NODE_KEY_FREE_LIST, &self.keys, &mut occupied)?;
+		self.validate_free_list(NODE_VALUE_FREE_LIST, &self.values, &mut occupied)?;
+		Ok(())
+	}
+
+	fn validate_free_list(
+		&self,
+		list: usize,
+		area: &Range<usize>,
+		occupied: &mut [u64; OCCUPANCY_WORDS],
+	) -> Result<(), Error> {
+		let mut offset = u16_at(self.bytes, list)?;
+		let mut remaining = usize::from(u16_at(self.bytes, list + size_of::<u16>())?);
+		if remaining > area.len() {
+			return Err(Error::InvalidObjectMap);
+		}
+		while offset != NONE_OFFSET {
+			let distance = usize::from(offset);
+			let start = if list == NODE_KEY_FREE_LIST {
+				area.start + distance
+			} else {
+				area.end
+					.checked_sub(distance)
+					.ok_or(Error::InvalidObjectMap)?
+			};
+			if start < area.start
+				|| start + LOCATION_BYTES > area.end
+				|| !start.is_multiple_of(RECORD_ALIGNMENT)
+			{
+				return Err(Error::InvalidObjectMap);
+			}
+			let length = usize::from(u16_at(self.bytes, start + size_of::<u16>())?);
+			if length < LOCATION_BYTES
+				|| !length.is_multiple_of(RECORD_ALIGNMENT)
+				|| start + length > area.end
+			{
+				return Err(Error::InvalidObjectMap);
+			}
+			// Each step consumes a nonempty aligned span. The shared bitset
+			// rejects cycles and overlap with live records or another free span.
+			remaining = remaining
+				.checked_sub(length)
+				.ok_or(Error::InvalidObjectMap)?;
+			claim(occupied, start, length)?;
+			offset = u16_at(self.bytes, start)?;
+		}
+		if remaining != 0 {
+			return Err(Error::InvalidObjectMap);
 		}
 		Ok(())
 	}
