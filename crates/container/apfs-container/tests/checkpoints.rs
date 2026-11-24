@@ -8,6 +8,7 @@ use apfs_format::{
 };
 
 mod object_map;
+mod volume_objects;
 mod volumes;
 
 const BLOCK_BYTES: usize = 4096;
@@ -23,6 +24,9 @@ const LATEST_FIRST_DATA: u64 = 11;
 const DATA_RING_BLOCKS: u64 = 160;
 const EARLY_OMAP: u64 = 191;
 const EARLY_OMAP_ROOT: u64 = 192;
+const VOLUME_OMAP: u64 = 193;
+const VOLUME_OMAP_ROOT: u64 = 194;
+const VOLUME_FSROOT: u64 = 197;
 const VOLUME_SUPERBLOCK: u64 = 198;
 const LATEST_OMAP: u64 = 199;
 const LATEST_OMAP_ROOT: u64 = 200;
@@ -77,6 +81,9 @@ impl Fixture {
 			(14, native_block!(14)),
 			(EARLY_OMAP, native_block!(191)),
 			(EARLY_OMAP_ROOT, native_block!(192)),
+			(VOLUME_OMAP, native_block!(193)),
+			(VOLUME_OMAP_ROOT, native_block!(194)),
+			(VOLUME_FSROOT, native_block!(197)),
 			(VOLUME_SUPERBLOCK, native_block!(198)),
 			(LATEST_OMAP, native_block!(199)),
 			(LATEST_OMAP_ROOT, native_block!(200)),

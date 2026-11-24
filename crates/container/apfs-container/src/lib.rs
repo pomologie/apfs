@@ -19,7 +19,7 @@ use apfs_format::{
 };
 
 pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported, VolumeError};
-pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType};
+pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType, VolumeObjects};
 pub use volume::Volume;
 
 const BLOCK_ZERO: BlockAddress = BlockAddress(0);

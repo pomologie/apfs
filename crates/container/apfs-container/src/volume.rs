@@ -82,7 +82,7 @@ impl<S: ReadAt> Container<S> {
 			.transpose()
 	}
 
-	fn validate_volume_table(&self) -> Result<(), Error<S::Error>> {
+	pub(super) fn validate_volume_table(&self) -> Result<(), Error<S::Error>> {
 		let checkpoint = self.superblock();
 		for slot in checkpoint.volume_slots() {
 			if slot.index >= checkpoint.max_volumes {
@@ -102,7 +102,7 @@ impl<S: ReadAt> Container<S> {
 		Ok(())
 	}
 
-	fn resolve_volume(
+	pub(super) fn resolve_volume(
 		&self,
 		slot: VolumeSlot,
 		lookup: &mut Lookup<'_, S>,

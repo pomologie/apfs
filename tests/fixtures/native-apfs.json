@@ -112,6 +112,24 @@
       "checksum": "5dcadce652931213",
       "xid": 1
     },
+    "native-block-193.bin": {
+      "physical_block": 193,
+      "sha256": "835c5fc064bbb6f87583f0289f1d0d4b49e3a0f6ad55dcb902117fad8cf68e51",
+      "checksum": "400647ebfff9b67f",
+      "xid": 2
+    },
+    "native-block-194.bin": {
+      "physical_block": 194,
+      "sha256": "289d50e02dbc97ed721c3f41d8ace15cf9d1e5ae52a874e19e317090c19ea641",
+      "checksum": "1e5a231d9213b6dc",
+      "xid": 2
+    },
+    "native-block-197.bin": {
+      "physical_block": 197,
+      "sha256": "12b19394f9b8b83782b7fa293bb26a484eddaef74dc4827153a4567eb12cc7d1",
+      "checksum": "6eebec9242ffbdb4",
+      "xid": 2
+    },
     "native-block-198.bin": {
       "physical_block": 198,
       "sha256": "c4ef152b529e6210b8b00865055b79eeedfda50e5902829cbd3cd06f7ed9785a",
@@ -159,6 +177,21 @@
       "volume_oid": 1026,
       "volume_mapping_xid": 2,
       "volume_superblock": 198
+    }
+  },
+  "volume_object_map_oracle": {
+    "same_command_as_checkpoint_oracle": true,
+    "volume_object_map_and_fsroot_checked": true,
+    "decoded_block_expectations": {
+      "volume_oid": 1026,
+      "volume_object_map": 193,
+      "map_flags": 0,
+      "volume_object_map_root": 194,
+      "filesystem_root_oid": 1028,
+      "filesystem_root_xid": 2,
+      "filesystem_root_physical_block": 197,
+      "filesystem_root_object_type": 2,
+      "filesystem_root_object_subtype": 14
     }
   }
 }

@@ -15,6 +15,7 @@ const BTREE_ROOT: u32 = PHYSICAL_STORAGE | 0x0002;
 const BTREE_NODE: u32 = PHYSICAL_STORAGE | 0x0003;
 const NO_SUBTYPE: u32 = 0;
 const MANUALLY_MANAGED: u32 = 1;
+const ORDINARY_VOLUME_FLAGS: u32 = 0;
 
 const MAP_FLAGS: usize = HEADER_BYTES;
 const MAP_SNAPSHOT_COUNT: usize = 36;
@@ -73,6 +74,19 @@ impl ObjectMap {
 	/// Rejects unsupported flags, snapshots, inconsistent fields, checksums,
 	/// and addresses outside the container.
 	pub fn decode(bytes: &[u8], geometry: Geometry) -> Result<Self, Error> {
+		Self::decode_with_flags(bytes, geometry, MANUALLY_MANAGED)
+	}
+
+	/// Decodes an ordinary volume object map without snapshots or encryption.
+	///
+	/// # Errors
+	/// Rejects flags outside the ordinary volume profile, snapshot and revert
+	/// states, bad checksums, inconsistent fields and out-of-range addresses.
+	pub fn decode_volume(bytes: &[u8], geometry: Geometry) -> Result<Self, Error> {
+		Self::decode_with_flags(bytes, geometry, ORDINARY_VOLUME_FLAGS)
+	}
+
+	fn decode_with_flags(bytes: &[u8], geometry: Geometry, expected: u32) -> Result<Self, Error> {
 		if bytes.len() != geometry.block_bytes() as usize {
 			return Err(Error::InvalidGeometry);
 		}
@@ -81,7 +95,7 @@ impl ObjectMap {
 			return Err(Error::UnexpectedObjectType(header.object_type));
 		}
 		let flags = u32_at(bytes, MAP_FLAGS)?;
-		if flags != MANUALLY_MANAGED {
+		if flags != expected {
 			return Err(Error::UnsupportedObjectMapFlags(flags));
 		}
 		let tree_type = u32_at(bytes, MAP_TREE_TYPE)?;

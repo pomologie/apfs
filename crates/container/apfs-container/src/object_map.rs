@@ -10,6 +10,11 @@ use apfs_format::{
 
 use crate::{BLOCK_ZERO, Container, Error, Limit, ObjectMapError, OpenOptions, Probe, push};
 
+mod volume;
+
+use volume::VolumeMap;
+pub use volume::VolumeObjects;
+
 const INVALID_TRANSACTION: TransactionId = TransactionId(0);
 const DEFAULT_MAX_NODES: u16 = 16;
 
@@ -34,7 +39,7 @@ impl Default for LookupOptions {
 	}
 }
 
-/// A container-namespace mapping valid at the requested transaction.
+/// A mapping in the namespace used to look it up, valid at the requested transaction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct VirtualMapping {
@@ -114,6 +119,7 @@ pub(super) struct Lookup<'source, S> {
 	container: &'source Container<S>,
 	probe: Probe<'source, S>,
 	max_nodes: u16,
+	volume_map: Option<VolumeMap>,
 }
 
 impl<'source, S: ReadAt> Lookup<'source, S> {
@@ -129,6 +135,7 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 				bytes_left: options.max_read_bytes,
 			},
 			max_nodes: options.max_nodes,
+			volume_map: None,
 		}
 	}
 
@@ -171,7 +178,9 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 		bytes: &mut Vec<u8>,
 	) -> Result<Option<VirtualMapping>, Error<S::Error>> {
 		let checkpoint = self.container.superblock();
-		let map_address = checkpoint.object_map;
+		let map_address = self
+			.volume_map
+			.map_or(checkpoint.object_map, |volume| volume.address);
 		if key.transaction == INVALID_TRANSACTION || key.transaction > checkpoint.object.transaction
 		{
 			return Err(map_error(
@@ -179,10 +188,15 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 				ObjectMapError::Transaction(key.transaction),
 			));
 		}
-		self.read(map_address, 1, bytes)?;
-		let map = ObjectMap::decode(bytes, checkpoint.geometry)
-			.map_err(|error| format_error(map_address, error))?;
-		verify_physical_header(map_address, map.header, checkpoint.object.transaction)?;
+		let map = if let Some(volume) = self.volume_map {
+			volume.map
+		} else {
+			self.read(map_address, 1, bytes)?;
+			let map = ObjectMap::decode(bytes, checkpoint.geometry)
+				.map_err(|error| format_error(map_address, error))?;
+			verify_physical_header(map_address, map.header, checkpoint.object.transaction)?;
+			map
+		};
 
 		let mut address = map.root;
 		let mut upper_transaction = map.header.transaction;
@@ -229,6 +243,13 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 				Value::Mapping(Mapping::Object { address, size }) if key.id == record.key.id => {
 					let blocks = u64::from(size / checkpoint.geometry.block_bytes());
 					self.validate_range(address, blocks)?;
+					if address_contains(address, blocks, map_address)
+						|| visited
+							.iter()
+							.any(|node| address_contains(address, blocks, *node))
+					{
+						return Err(map_error(address, ObjectMapError::Address));
+					}
 					return Ok(Some(VirtualMapping {
 						id: record.key.id,
 						transaction: record.key.transaction,
@@ -254,6 +275,9 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 		if address == BLOCK_ZERO
 			|| overlaps_area(address, blocks, checkpoint.descriptors)
 			|| overlaps_area(address, blocks, checkpoint.data)
+			|| self
+				.volume_map
+				.is_some_and(|volume| volume.overlaps_protected(address, blocks))
 		{
 			return Err(map_error(address, ObjectMapError::Address));
 		}
@@ -272,6 +296,11 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 		self.probe.buffer(size, bytes)?;
 		self.probe.read_exact(ByteOffset(range.start), bytes)
 	}
+}
+
+fn address_contains(start: BlockAddress, blocks: u64, target: BlockAddress) -> bool {
+	// The caller established the geometry before comparing addresses.
+	start.0 <= target.0 && target.0 < start.0 + blocks
 }
 
 #[derive(Clone, Copy)]
