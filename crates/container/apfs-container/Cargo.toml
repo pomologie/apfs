@@ -1,0 +1,15 @@
+[package]
+name = "apfs-container"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bounded read-only APFS container checkpoint discovery"
+
+[dependencies]
+apfs-core.workspace = true
+apfs-format.workspace = true
+
+[lints]
+workspace = true

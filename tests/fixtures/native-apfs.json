@@ -63,6 +63,71 @@
       "sha256": "e3aa2b4a6a948a53e0224780d9d6150645dd45dd2bcf967832bdf2fa9f80ffc6",
       "checksum": "4665313affa470d2",
       "xid": 2
+    },
+    "native-block-9.bin": {
+      "physical_block": 9,
+      "sha256": "71013f95bb49badb4f739fb9ea3d2449bad38e4d0c1670074427f1c49771c1d7",
+      "checksum": "90f854cfeebf5755",
+      "xid": 1
+    },
+    "native-block-10.bin": {
+      "physical_block": 10,
+      "sha256": "72414797c1ad4941c737e2886f2593facf3dec5a8f7d5498d2da4b198521bbf9",
+      "checksum": "004ce9497fb30311",
+      "xid": 1
+    },
+    "native-block-11.bin": {
+      "physical_block": 11,
+      "sha256": "01080024a758f1de884ed955a708921138c118a87b02a2d27e96d447b4d9d074",
+      "checksum": "56b3b7862914ec91",
+      "xid": 2
+    },
+    "native-block-12.bin": {
+      "physical_block": 12,
+      "sha256": "c44ed658e65dee348f051be8f3b06218d1a50bd7228db934435808cfd98b3d6f",
+      "checksum": "004ced457fb2ff14",
+      "xid": 2
+    },
+    "native-block-13.bin": {
+      "physical_block": 13,
+      "sha256": "67b8da22b01bcccb4a4a82a1a7777312df6bd1861710b543d42cafc655783657",
+      "checksum": "9ef29a17d17b50c4",
+      "xid": 2
+    },
+    "native-block-14.bin": {
+      "physical_block": 14,
+      "sha256": "d71dcd9e5a0b151f29526ce994cd9c46a7b298a09007f9adba4ac656e12957aa",
+      "checksum": "9ef2b653d17b3480",
+      "xid": 2
+    },
+    "native-block-191.bin": {
+      "physical_block": 191,
+      "sha256": "34ea29f57189c7a13322908620a92992e7622b90aeab03675d09eb7194b9d544",
+      "checksum": "40063803fff9c66b",
+      "xid": 1
+    },
+    "native-block-199.bin": {
+      "physical_block": 199,
+      "sha256": "346662cbd96b96a44cb6f6e66b9d9d1e8e373f7e63ee52b7fe953134d7dfdc1b",
+      "checksum": "40067b8ffff982ce",
+      "xid": 2
     }
+  },
+  "verified_zero_blocks": [
+    5,
+    6,
+    7,
+    8
+  ],
+  "checkpoint_oracle": {
+    "command": [
+      "/sbin/fsck_apfs",
+      "-n",
+      "apple-apfs.raw.cdr"
+    ],
+    "exit_code": 0,
+    "selected_xid": 2,
+    "volume_tool_version": "2236.141.1",
+    "source_warnings": "Regular-file device features were unavailable. The offline read-only container check completed."
   }
 }
