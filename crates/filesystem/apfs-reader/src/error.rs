@@ -23,6 +23,10 @@ pub enum Corruption {
 	DuplicateInode,
 	RootInode,
 	DirectoryTarget,
+	SiblingLink,
+	SiblingMap,
+	HardLinkCount,
+	HardLinkDirectory,
 	StreamRecord,
 	ExtentRecord,
 	ExtentCoverage,
@@ -54,6 +58,7 @@ pub enum Unsupported {
 	XattrStorage(u16),
 	XattrStreamRecord,
 	InodeFinderInfo,
+	HardLinkKind,
 }
 
 /// A budget exhausted during checked filesystem traversal.

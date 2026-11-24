@@ -412,6 +412,7 @@ fn enforces_per_tree_scan_and_page_limits() {
 	));
 }
 
+mod hard_links;
 mod payload;
 
 mod xattr;

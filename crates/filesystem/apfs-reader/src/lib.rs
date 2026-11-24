@@ -6,6 +6,7 @@ extern crate alloc;
 
 mod error;
 mod extent_refs;
+mod hard_links;
 mod node;
 mod payload;
 mod record;
@@ -24,6 +25,7 @@ use apfs_format::{
 };
 
 pub use error::{Corruption, Error, Limit, Unsupported};
+pub use hard_links::{HardLink, SiblingId};
 pub use payload::FileData;
 pub use record::{DirectoryEntry, FileKind, Inode, InodeCount, InodeId, StreamSizes, Times};
 pub use xattr::{Xattr, XattrCursor, XattrData, XattrPage, XattrStorage};
@@ -46,7 +48,7 @@ pub struct TreeLimits {
 	pub max_nodes: u16,
 	/// Maximum number of examined key/value slots per scan.
 	pub max_records: u32,
-	/// Maximum number of directory entries or attributes returned by one page.
+	/// Maximum number of entries, attributes, or hard links returned by a query.
 	pub max_entries_per_page: u16,
 }
 
@@ -156,6 +158,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 
 	/// Finds an exact stored UTF-8 name in one directory and verifies its inode.
 	/// Matches the spelling stored in the directory record byte for byte.
+	/// Hard links also require a matching sibling link and inverse sibling map.
 	///
 	/// # Errors
 	/// Invalid components, malformed or inconsistent records, non-directories,
@@ -187,6 +190,11 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 				|| (expects_parent && inode.parent != Some(parent))
 			{
 				return Err(Corruption::DirectoryTarget.into());
+			}
+			if entry.sibling.is_some()
+				|| matches!(inode.count, InodeCount::Links(count) if count > 1)
+			{
+				self.verify_hard_link(parent, entry, inode)?;
 			}
 		}
 		Ok(found)

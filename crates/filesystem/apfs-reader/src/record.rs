@@ -13,9 +13,11 @@ const SYSTEM_ID_MIN: u64 = 0x0fff_ffff_0000_0000;
 const PRIVATE_DIRECTORY_ID: InodeId = InodeId(3);
 const INODE_RECORD: u8 = 3;
 const XATTR_RECORD: u8 = 4;
+const SIBLING_LINK_RECORD: u8 = 5;
 const DATA_STREAM_ID_RECORD: u8 = 6;
 const FILE_EXTENT_RECORD: u8 = 8;
 const DIRECTORY_RECORD: u8 = 9;
+const SIBLING_MAP_RECORD: u8 = 12;
 const INODE_PARENT: usize = 0;
 const INODE_STREAM_ID: usize = 8;
 const INODE_CREATED: usize = 16;
@@ -217,6 +219,20 @@ impl Prefix {
 		}
 	}
 
+	pub(crate) const fn sibling_links(id: InodeId) -> Self {
+		Self {
+			id: ObjectId(id.0),
+			kind: SIBLING_LINK_RECORD,
+		}
+	}
+
+	pub(crate) const fn sibling_map(id: ObjectId) -> Self {
+		Self {
+			id,
+			kind: SIBLING_MAP_RECORD,
+		}
+	}
+
 	pub(crate) const fn file_extents(id: ObjectId) -> Self {
 		Self {
 			id,
@@ -391,7 +407,7 @@ pub(crate) fn valid_name(name: &str) -> bool {
 		&& !name.as_bytes().iter().any(|&byte| matches!(byte, 0 | b'/'))
 }
 
-fn decode_name(data: &[u8]) -> Result<&str, Corruption> {
+pub(crate) fn decode_name(data: &[u8]) -> Result<&str, Corruption> {
 	let name = data.strip_suffix(&[0]).ok_or(Corruption::RecordKey)?;
 	let name = core::str::from_utf8(name).map_err(|_| Corruption::RecordKey)?;
 	if !valid_name(name) {

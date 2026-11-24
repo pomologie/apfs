@@ -1,0 +1,137 @@
+{
+  "source": "Apple hdiutil from a synthetic directory tree containing one regular file with three hard links",
+  "license": "Apache-2.0; synthetic data only",
+  "os": "14.7.2",
+  "build": "23H311",
+  "architecture": "arm64",
+  "input": {
+    "paths": [
+      "primary.bin",
+      "Docs/alias.bin",
+      "More/Écho.bin"
+    ],
+    "data_bytes": 5500,
+    "data_pattern": "APFS shared data fork\n",
+    "data_repetitions": 250,
+    "resource_fork_bytes": 5200,
+    "resource_fork_pattern": "APFS shared resource fork\n",
+    "resource_fork_repetitions": 200,
+    "creation": "Write both forks of primary.bin, then use link(2) to add the other paths in existing subdirectories"
+  },
+  "commands": [
+    [
+      "/usr/bin/hdiutil",
+      "create",
+      "-size",
+      "64m",
+      "-srcfolder",
+      "$scratch/input",
+      "-fs",
+      "APFS",
+      "-volname",
+      "Pomologie APFS Hard Links",
+      "-layout",
+      "NONE",
+      "-format",
+      "UDRW",
+      "$scratch/source.dmg"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "convert",
+      "$scratch/source.dmg",
+      "-format",
+      "UDTO",
+      "-o",
+      "$scratch/source.raw",
+      "-quiet"
+    ],
+    [
+      "/sbin/fsck_apfs",
+      "-n",
+      "$scratch/source.raw.cdr"
+    ]
+  ],
+  "native_checker": {
+    "checkpoint_xid": 4,
+    "exit_code": 0,
+    "volume_uuid": "D37600DC-3EF5-4393-8E07-31DBAA91E9B6",
+    "tool_version": "2236.141.1",
+    "warnings": "The input was a disposable raw regular-file image. The offline read-only filesystem check completed."
+  },
+  "decoded": {
+    "fsroot_block": 206,
+    "fsroot_xid": 3,
+    "inode": 17,
+    "link_count": 3,
+    "data_stream_id": 17,
+    "data_stream_references": 1,
+    "resource_fork_stream_id": 18,
+    "primary_sibling": 20,
+    "siblings": [
+      {
+        "id": 20,
+        "parent": 16,
+        "name": "alias.bin"
+      },
+      {
+        "id": 21,
+        "parent": 19,
+        "name": "Écho.bin"
+      },
+      {
+        "id": 22,
+        "parent": 2,
+        "name": "primary.bin"
+      }
+    ]
+  },
+  "raw_sha256": "da495095239f7e856c3a5a6c63ed67905acfb19784d4df046e7e221527fd8cba",
+  "block_bytes": 4096,
+  "block_numbers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    19,
+    20,
+    21,
+    22,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206,
+    207,
+    208,
+    212,
+    213,
+    214
+  ],
+  "packed_sha256": "2be5d3c6b199595d59825903b63cc332f7b2b2b8ff48e55b183290e03ae5d87c",
+  "read_only_mount_oracle": {
+    "command": [
+      "/usr/bin/hdiutil",
+      "attach",
+      "-readonly",
+      "-nobrowse",
+      "-noautoopen",
+      "-plist",
+      "-mountpoint",
+      "$scratch/read-only-check",
+      "-mount",
+      "required",
+      "$scratch/source.dmg"
+    ],
+    "verified_backing_image_detached": true,
+    "posix_inode": 17,
+    "posix_links": 3,
+    "data_and_resource_forks_match_input_under_each_path": true
+  }
+}
