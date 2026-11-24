@@ -23,6 +23,13 @@ pub enum Corruption {
 	DuplicateInode,
 	RootInode,
 	DirectoryTarget,
+	StreamRecord,
+	ExtentRecord,
+	ExtentCoverage,
+	ExtentReference,
+	ExtentMetadataAlias,
+	SymlinkRecord,
+	PhysicalNode(apfs_format::Error),
 }
 
 /// A known APFS structure outside the admitted profile.
@@ -33,6 +40,15 @@ pub enum Unsupported {
 	NodeFlags(u16),
 	DirectoryEntryFlags(u16),
 	DirectoryExtendedField(u8),
+	InodeDataFlags(u64),
+	InodeDataField(u8),
+	ExtentFlags(u8),
+	ExtentReferenceKind(u8),
+	SharedData,
+	SparseData,
+	CompressedData,
+	EncryptedData,
+	SymlinkStorage(u16),
 }
 
 /// A budget exhausted during checked filesystem traversal.
@@ -56,6 +72,13 @@ pub enum Error<E> {
 	InvalidName,
 	InvalidCursor,
 	NotDirectory,
+	NotRegularFile,
+	NotSymlink,
+	FileRange {
+		offset: u64,
+		bytes: u64,
+		length: u64,
+	},
 	Allocation,
 }
 
@@ -91,6 +114,18 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 				f.write_str("directory cursor is outside this view or directory")
 			}
 			Self::NotDirectory => f.write_str("APFS directory inode required"),
+			Self::NotRegularFile => f.write_str("APFS regular file inode required"),
+			Self::NotSymlink => f.write_str("APFS symbolic link inode required"),
+			Self::FileRange {
+				offset,
+				bytes,
+				length,
+			} => {
+				write!(
+					f,
+					"APFS file range {offset} + {bytes} exceeds logical length {length}"
+				)
+			}
 			Self::Allocation => f.write_str("could not allocate APFS filesystem read buffer"),
 		}
 	}

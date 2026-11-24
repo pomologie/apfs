@@ -411,3 +411,5 @@ fn enforces_per_tree_scan_and_page_limits() {
 		Err(Error::Limit(Limit::Page))
 	));
 }
+
+mod payload;

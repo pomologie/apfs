@@ -1,11 +1,13 @@
-//! Bounded APFS filesystem metadata in an immutable selected volume.
+//! Bounded APFS filesystem reads in an immutable selected volume.
 #![no_std]
 #![forbid(unsafe_code)]
 
 extern crate alloc;
 
 mod error;
+mod extent_refs;
 mod node;
+mod payload;
 mod record;
 mod walk;
 mod wire;
@@ -21,11 +23,13 @@ use apfs_format::{
 };
 
 pub use error::{Corruption, Error, Limit, Unsupported};
+pub use payload::FileData;
 pub use record::{DirectoryEntry, FileKind, Inode, InodeCount, InodeId, StreamSizes, Times};
 
 use record::{DirectoryRecord, Prefix};
 
 const DEFAULT_TREE_DEPTH: u16 = 16;
+const MAX_TREE_DEPTH: u16 = 32;
 const DEFAULT_TREE_NODES: u16 = 256;
 const DEFAULT_TREE_RECORDS: u32 = 16_384;
 const DEFAULT_PAGE_ENTRIES: u16 = 256;
@@ -79,12 +83,13 @@ struct ViewIdentity {
 	uuid: [u8; 16],
 }
 
-/// Read-only filesystem metadata for one ordinary APFS volume.
+/// Read-only filesystem access to one ordinary APFS volume.
 #[derive(Debug)]
 pub struct VolumeView<'source, S> {
 	objects: VolumeObjects<'source, S>,
 	geometry: Geometry,
 	container_uuid: [u8; 16],
+	reserved: payload::ReservedBlocks,
 	limits: TreeLimits,
 	root: Inode,
 }
@@ -120,6 +125,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			limits,
 			root,
 			container_uuid: container.superblock().uuid,
+			reserved: payload::ReservedBlocks::from_superblock(container.superblock()),
 		}))
 	}
 

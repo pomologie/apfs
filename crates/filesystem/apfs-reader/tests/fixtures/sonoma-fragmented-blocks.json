@@ -1,0 +1,92 @@
+{
+  "source": "A disposable copy of the synthetic APFS payload image was attached read-write, populated with a file that uses four separate extents, detached, and exported by Apple hdiutil.",
+  "license": "Apache-2.0; synthetic data only",
+  "os": "14.7.2",
+  "build": "23H311",
+  "architecture": "arm64",
+  "base_image": "sonoma-payload-blocks.json",
+  "steps": [
+    "Copy payload.dmg to fragmented.dmg.",
+    "Attach the disposable copy at a scratch mount point with hdiutil attach -readwrite -nobrowse -noautoopen -plist.",
+    "Append four 4096-byte blocks to fragmented.bin and fsync after each write. For each step write and fsync an interleave-{step}.bin filler of 256KiB between appends.",
+    "Detach the disposable image. Export with hdiutil convert -format UDTO.",
+    "Check the exported image with /sbin/fsck_apfs -n."
+  ],
+  "expected_file": {
+    "name": "fragmented.bin",
+    "byte_formula": "(block_index * 19 + byte_index_within_block * 17) % 251",
+    "filler_formula": "(step * 13 + index * 11) % 253",
+    "length": 16384,
+    "sha256": "af1432c49e474fcd28060682dd21193f3a8342a75f0e328d2dfbe420918f5382",
+    "inode": 199,
+    "extents": [
+      {
+        "logical_byte_offset": 0,
+        "physical_block": 416,
+        "allocated_bytes": 4096
+      },
+      {
+        "logical_byte_offset": 4096,
+        "physical_block": 483,
+        "allocated_bytes": 4096
+      },
+      {
+        "logical_byte_offset": 8192,
+        "physical_block": 548,
+        "allocated_bytes": 4096
+      },
+      {
+        "logical_byte_offset": 12288,
+        "physical_block": 613,
+        "allocated_bytes": 4096
+      }
+    ]
+  },
+  "native_checker": {
+    "exit_code": 0,
+    "checkpoint_xid": 6,
+    "volume_uuid": "6EA84103-3FA4-4AE1-A9F6-9385BF59772E",
+    "tool_version": "2236.141.1",
+    "warnings": "Regular-file device features were unavailable. The offline read-only fsroot, extent-reference, and container checks completed."
+  },
+  "raw_sha256": "3ffc11c371c3a4735f147b16055a1ec00ebf562b52ab34cfe00f678d4a818272",
+  "raw_length": 67108864,
+  "block_size": 4096,
+  "fixtures": {
+    "file": "sonoma-fragmented-blocks.bin",
+    "blocks": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      27,
+      28,
+      29,
+      30,
+      402,
+      416,
+      417,
+      418,
+      483,
+      548,
+      613,
+      678,
+      679,
+      680,
+      681,
+      682,
+      683,
+      684,
+      688,
+      689,
+      690
+    ],
+    "encoding": "Each record pairs a little-endian u64 physical block address with 4096 byte-for-byte native block bytes.",
+    "sha256": "ed48a68167b1cea40624a329394046b995b51b903a11719931b9bd32cf7423a3"
+  }
+}

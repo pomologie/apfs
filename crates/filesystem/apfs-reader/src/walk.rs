@@ -5,12 +5,14 @@ use apfs_core::ReadAt;
 use apfs_format::{object::ObjectId, superblock::Geometry};
 
 use crate::{
-	Corruption, Error, Limit, TreeLimits,
-	node::{BTREE_NODE_KIND, BTREE_ROOT_KIND, FILESYSTEM_SUBTYPE, Node, Slot, TreeInfo, child_id},
+	Corruption, Error, Limit, MAX_TREE_DEPTH, TreeLimits,
+	node::{
+		BTREE_NODE_KIND, BTREE_ROOT_KIND, FILESYSTEM_SUBTYPE, Node, Slot, TreeInfo, TreeKind,
+		child_id,
+	},
 	record::Prefix,
 };
 
-const IMPLEMENTATION_MAX_DEPTH: u16 = 32;
 const ROOT_DEPTH: u16 = 1;
 
 const ROOT_TYPE: VirtualType = VirtualType {
@@ -71,7 +73,7 @@ where
 		depth: u16,
 		route: Option<Route<'_>>,
 	) -> Result<(), Error<S::Error>> {
-		let depth_limit = self.limits.max_depth.min(IMPLEMENTATION_MAX_DEPTH);
+		let depth_limit = self.limits.max_depth.min(MAX_TREE_DEPTH);
 		if depth > depth_limit {
 			return Err(Error::Limit(Limit::Depth));
 		}
@@ -98,6 +100,7 @@ where
 			object.header,
 			self.geometry,
 			route.map(|route| route.info),
+			TreeKind::Filesystem,
 		)?;
 		if u32::from(depth) + u32::from(node.level) > u32::from(depth_limit) {
 			return Err(Error::Limit(Limit::Depth));

@@ -12,6 +12,9 @@ const OBJECT_ID_MASK: u64 = (1 << OBJECT_TYPE_SHIFT) - 1;
 const SYSTEM_ID_MIN: u64 = 0x0fff_ffff_0000_0000;
 const PRIVATE_DIRECTORY_ID: InodeId = InodeId(3);
 const INODE_RECORD: u8 = 3;
+const XATTR_RECORD: u8 = 4;
+const DATA_STREAM_ID_RECORD: u8 = 6;
+const FILE_EXTENT_RECORD: u8 = 8;
 const DIRECTORY_RECORD: u8 = 9;
 const INODE_PARENT: usize = 0;
 const INODE_STREAM_ID: usize = 8;
@@ -43,11 +46,14 @@ const XFIELD_HEADER_BYTES: usize = 4;
 const XFIELD_DESCRIPTOR_BYTES: usize = 4;
 const XFIELD_LENGTH_OFFSET: usize = 2;
 const XFIELD_NAME: u8 = 4;
+const XFIELD_FINDER_INFO: u8 = 7;
 const XFIELD_DATA_STREAM: u8 = 8;
 const DREC_XFIELD_SIBLING_ID: u8 = 1;
 const DATA_STREAM_BYTES: usize = 5 * U64_BYTES;
 const STREAM_SIZE: usize = 0;
 const STREAM_ALLOCATED: usize = 8;
+const STREAM_CRYPTO_ID: usize = 16;
+const FINDER_INFO_BYTES: usize = 32;
 
 /// An inode number interpreted within one APFS volume.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -121,6 +127,8 @@ pub enum InodeCount {
 pub struct StreamSizes {
 	pub logical_bytes: u64,
 	pub allocated_bytes: u64,
+	/// On-disk stream encryption-key or tweak identifier.
+	pub default_crypto_id: u64,
 }
 
 /// Checked inode metadata in the selected view.
@@ -141,6 +149,7 @@ pub struct Inode {
 	pub bsd_flags: u32,
 	pub internal_flags: u64,
 	pub stream: Option<StreamSizes>,
+	pub(crate) other_data_field: Option<u8>,
 }
 
 /// One directory record. Its target is volume-local, and filesystem metadata
@@ -192,6 +201,27 @@ impl Prefix {
 			kind: DIRECTORY_RECORD,
 		}
 	}
+
+	pub(crate) const fn xattrs(id: InodeId) -> Self {
+		Self {
+			id: ObjectId(id.0),
+			kind: XATTR_RECORD,
+		}
+	}
+
+	pub(crate) const fn data_stream(id: ObjectId) -> Self {
+		Self {
+			id,
+			kind: DATA_STREAM_ID_RECORD,
+		}
+	}
+
+	pub(crate) const fn file_extents(id: ObjectId) -> Self {
+		Self {
+			id,
+			kind: FILE_EXTENT_RECORD,
+		}
+	}
 }
 
 pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corruption> {
@@ -223,6 +253,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		InodeCount::Links(count)
 	};
 	let mut stream = None;
+	let mut other_data_field = None;
 	xfields(&value[INODE_BYTES..], |tag, data| {
 		match tag {
 			XFIELD_NAME => {
@@ -235,9 +266,14 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 				stream = Some(StreamSizes {
 					logical_bytes: u64_at(data, STREAM_SIZE)?,
 					allocated_bytes: u64_at(data, STREAM_ALLOCATED)?,
+					default_crypto_id: u64_at(data, STREAM_CRYPTO_ID)?,
 				});
 			}
-			_ => {}
+			XFIELD_FINDER_INFO if data.len() == FINDER_INFO_BYTES => {}
+			XFIELD_FINDER_INFO => return Err(Corruption::ExtendedFields),
+			_ => {
+				other_data_field.get_or_insert(tag);
+			}
 		}
 		Ok(())
 	})?;
@@ -250,6 +286,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		count,
 		mode,
 		stream,
+		other_data_field,
 		times: Times {
 			created: u64_at(value, INODE_CREATED)?,
 			modified: u64_at(value, INODE_MODIFIED)?,

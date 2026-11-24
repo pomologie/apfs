@@ -19,7 +19,13 @@ fn decode(bytes: &[u8]) -> Result<Node<'_>, Error<()>> {
 	let geometry = Superblock::decode(NATIVE_SUPERBLOCK, SOURCE_LENGTH)
 		.unwrap()
 		.geometry;
-	Node::decode(bytes, Header::decode(bytes).unwrap(), geometry, None)
+	Node::decode(
+		bytes,
+		Header::decode(bytes).unwrap(),
+		geometry,
+		None,
+		TreeKind::Filesystem,
+	)
 }
 
 #[test]
@@ -48,7 +54,8 @@ fn decodes_native_variable_leaf_and_inode_extended_fields() {
 				metadata.stream,
 				Some(StreamSizes {
 					logical_bytes: 30,
-					allocated_bytes: 4096
+					allocated_bytes: 4096,
+					default_crypto_id: 0,
 				})
 			);
 		}

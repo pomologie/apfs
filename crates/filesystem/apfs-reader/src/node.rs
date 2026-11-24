@@ -15,6 +15,8 @@ use crate::{
 pub(crate) const BTREE_ROOT_KIND: u16 = 2;
 pub(crate) const BTREE_NODE_KIND: u16 = 3;
 pub(crate) const FILESYSTEM_SUBTYPE: u32 = 14;
+const BLOCK_REFS_SUBTYPE: u32 = 15;
+const PHYSICAL_OBJECT_STORAGE: u32 = 1 << 30;
 const FLAGS: usize = HEADER_BYTES;
 const LEVEL: usize = 34;
 const COUNT: usize = 36;
@@ -30,11 +32,33 @@ const ROOT: u16 = 1;
 const LEAF: u16 = 1 << 1;
 const UINT64_KEYS_HINT: u32 = 1;
 const SEQUENTIAL_INSERT_HINT: u32 = 1 << 1;
+const PHYSICAL_TREE: u32 = 1 << 4;
 const NONALIGNED: u32 = 1 << 6;
 const SUPPORTED_TREE_FLAGS: u32 = UINT64_KEYS_HINT | SEQUENTIAL_INSERT_HINT | NONALIGNED;
 const INVALID_OFFSET: u16 = u16::MAX;
 const KEY_ALIGNMENT: usize = U64_BYTES;
 const OCCUPANCY_WORD_BITS: usize = u64::BITS as usize;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TreeKind {
+	Filesystem,
+	ExtentReferences,
+}
+
+impl TreeKind {
+	fn header_matches(self, header: Header, root: bool) -> bool {
+		let kind = u32::from(if root {
+			BTREE_ROOT_KIND
+		} else {
+			BTREE_NODE_KIND
+		});
+		let (object_type, subtype) = match self {
+			Self::Filesystem => (kind, FILESYSTEM_SUBTYPE),
+			Self::ExtentReferences => (kind | PHYSICAL_OBJECT_STORAGE, BLOCK_REFS_SUBTYPE),
+		};
+		header.object_type == object_type && header.subtype == subtype
+	}
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TreeInfo {
@@ -50,6 +74,7 @@ impl TreeInfo {
 		geometry: Geometry,
 		level: u16,
 		count: usize,
+		kind: TreeKind,
 	) -> Result<Self, TreeInfoError> {
 		const FOOTER_FLAGS: usize = 0;
 		const NODE_BYTES: usize = 4;
@@ -61,7 +86,10 @@ impl TreeInfo {
 		const TOTAL_NODES: usize = 32;
 
 		let flags = u32_at(footer, FOOTER_FLAGS)?;
-		if flags & !SUPPORTED_TREE_FLAGS != 0 {
+		let physical = flags & PHYSICAL_TREE != 0;
+		if flags & !(SUPPORTED_TREE_FLAGS | PHYSICAL_TREE) != 0
+			|| physical != (kind == TreeKind::ExtentReferences)
+		{
 			return Err(TreeInfoError::Flags(flags));
 		}
 		let max_key = u32_at(footer, LONGEST_KEY)? as usize;
@@ -116,23 +144,19 @@ pub(crate) struct Node<'block> {
 }
 
 impl<'block> Node<'block> {
-	/// Opens one already checksummed and identity-checked virtual tree object.
+	/// Opens one already checksummed and identity-checked tree object.
 	pub(crate) fn decode<E>(
 		bytes: &'block [u8],
 		header: Header,
 		geometry: Geometry,
 		parent_info: Option<TreeInfo>,
+		tree_kind: TreeKind,
 	) -> Result<Self, Error<E>> {
 		if bytes.len() != geometry.block_bytes() as usize {
 			return Err(Corruption::NodeSize.into());
 		}
 		let root = parent_info.is_none();
-		let kind = if root {
-			BTREE_ROOT_KIND
-		} else {
-			BTREE_NODE_KIND
-		};
-		if header.object_type != u32::from(kind) || header.subtype != FILESYSTEM_SUBTYPE {
+		if !tree_kind.header_matches(header, root) {
 			return Err(Corruption::NodeDescriptor.into());
 		}
 
@@ -144,7 +168,7 @@ impl<'block> Node<'block> {
 		}
 
 		let count = u32_at(bytes, COUNT)? as usize;
-		if count == 0 {
+		if count == 0 && (tree_kind == TreeKind::Filesystem || !root || level != 0) {
 			return Err(Corruption::NodeDescriptor.into());
 		}
 		let (values_end, info) = match parent_info {
@@ -153,15 +177,14 @@ impl<'block> Node<'block> {
 				let (content, footer) = bytes
 					.split_at_checked(bytes.len().saturating_sub(FOOTER_BYTES))
 					.ok_or(Corruption::Truncated)?;
-				let info =
-					TreeInfo::decode(footer, geometry, level, count).map_err(
-						|error| match error {
-							TreeInfoError::Corrupt(reason) => Error::Corrupt(reason),
-							TreeInfoError::Flags(flags) => {
-								Error::Unsupported(Unsupported::TreeFlags(flags))
-							}
-						},
-					)?;
+				let info = TreeInfo::decode(footer, geometry, level, count, tree_kind).map_err(
+					|error| match error {
+						TreeInfoError::Corrupt(reason) => Error::Corrupt(reason),
+						TreeInfoError::Flags(flags) => {
+							Error::Unsupported(Unsupported::TreeFlags(flags))
+						}
+					},
+				)?;
 				(content.len(), info)
 			}
 		};
