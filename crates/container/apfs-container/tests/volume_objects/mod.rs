@@ -3,6 +3,7 @@
 use apfs_container::{
 	Container, Error, Limit, LookupOptions, ObjectMapError, OpenOptions, VirtualType,
 };
+use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{Error as FormatError, object::ObjectId, superblock::BlockAddress};
 
 use super::{
@@ -101,6 +102,54 @@ fn read_budget_covers_volume_open_and_subsequent_scope_lookups() {
 	);
 	assert!(matches!(
 		view.lookup_virtual_mapping(NATIVE_FSROOT),
+		Err(Error::Limit(Limit::ReadBytes))
+	));
+}
+
+#[test]
+fn reads_unaligned_physical_bytes_within_the_selected_geometry_and_budget() {
+	struct TrailingBytes(Fixture);
+	impl ReadAt for TrailingBytes {
+		type Error = u64;
+		fn len(&self) -> u64 {
+			self.0.len() + BLOCK_BYTES as u64
+		}
+		fn read_exact_at(&self, offset: ByteOffset, out: &mut [u8]) -> Result<(), Self::Error> {
+			self.0.read_exact_at(offset, out)
+		}
+	}
+	const OFFSET_IN_BLOCK: usize = 7;
+	const READ_BYTES: usize = 9;
+	const FULL_OPEN_BLOCKS: usize = 4;
+	let container =
+		Container::open(TrailingBytes(Fixture::native()), OpenOptions::default()).unwrap();
+	let mut view = container
+		.open_volume_objects(
+			NATIVE_VOLUME,
+			LookupOptions {
+				max_read_bytes: (FULL_OPEN_BLOCKS * BLOCK_BYTES + READ_BYTES) as u64,
+				..LookupOptions::default()
+			},
+		)
+		.unwrap()
+		.unwrap();
+	let end = container.source().0.len();
+	view.read_physical_at(ByteOffset(end), &mut []).unwrap();
+	for offset in [end, u64::MAX] {
+		assert!(matches!(
+			view.read_physical_at(ByteOffset(offset), &mut [0]),
+			Err(Error::ReadBounds { .. })
+		));
+	}
+	let start = VOLUME_FSROOT * BLOCK_BYTES as u64 + OFFSET_IN_BLOCK as u64;
+	let mut read = [0; READ_BYTES];
+	view.read_physical_at(ByteOffset(start), &mut read).unwrap();
+	assert_eq!(
+		read,
+		container.source().0.0[&VOLUME_FSROOT][OFFSET_IN_BLOCK..OFFSET_IN_BLOCK + READ_BYTES]
+	);
+	assert!(matches!(
+		view.read_physical_at(ByteOffset(start), &mut [0]),
 		Err(Error::Limit(Limit::ReadBytes))
 	));
 }

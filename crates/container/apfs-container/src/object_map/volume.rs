@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt;
 
-use apfs_core::ReadAt;
+use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{
 	object::ObjectId,
 	object_map::{Key, ObjectMap},
@@ -37,6 +37,31 @@ impl<S: ReadAt> VolumeObjects<'_, S> {
 	#[must_use]
 	pub const fn volume(&self) -> &Volume {
 		&self.volume
+	}
+
+	/// Reads exact bytes inside the selected container and charges the shared
+	/// read budget. Filesystem callers validate the ownership and interpretation
+	/// of each physical range before reading it.
+	///
+	/// # Errors
+	/// Rejects container bounds, exhausted read budgets, and source failures.
+	pub fn read_physical_at(
+		&mut self,
+		offset: ByteOffset,
+		destination: &mut [u8],
+	) -> Result<(), Error<S::Error>> {
+		let geometry = self.lookup.container.superblock().geometry;
+		// Geometry admission bounds this multiplication by the source length.
+		let container_bytes = geometry.block_count() * u64::from(geometry.block_bytes());
+		let bytes = destination.len() as u64;
+		if offset
+			.0
+			.checked_add(bytes)
+			.is_none_or(|end| end > container_bytes)
+		{
+			return Err(Error::ReadBounds { offset, bytes });
+		}
+		self.lookup.probe.read_exact(offset, destination)
 	}
 
 	/// Finds a visible mapping using the volume namespace and checkpoint XID.
