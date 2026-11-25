@@ -13,7 +13,7 @@ use apfs_format::{
 };
 
 use crate::{
-	Corruption, DirectoryEntry, Error, FileKind, Inode, InodeCount, InodeId, Limit,
+	Corruption, DirectoryEntry, Error, FileKind, Inode, InodeCount, InodeId, Limit, NameProfile,
 	payload::ReservedBlocks,
 	record::{self, DirectoryRecord, Prefix},
 	walk,
@@ -126,6 +126,16 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		self.objects.volume()
 	}
 
+	/// Qualified on-disk name comparison profile selected by the volume flags.
+	#[must_use]
+	pub fn name_profile(&self) -> NameProfile {
+		let features = self.volume().superblock.features;
+		NameProfile::for_flags(
+			features.case_insensitive(),
+			features.normalization_insensitive(),
+		)
+	}
+
 	/// The verified user-visible root inode.
 	#[must_use]
 	pub const fn root(&self) -> Inode {
@@ -158,11 +168,47 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		if !record::valid_name(name) {
 			return Err(Error::InvalidName);
 		}
+		self.find_directory_entry(parent, Corruption::DuplicateEntry, |stored| {
+			Ok(stored == name)
+		})
+	}
+
+	/// Looks up a name using the volume's qualified on-disk comparison profile.
+	/// Returns the stored spelling and verifies the target inode and hard links.
+	///
+	/// Normalized and folded profiles compare complete keys in one bounded
+	/// directory scan. A 22-bit directory hash can be shared by distinct keys.
+	///
+	/// # Errors
+	/// Rejects invalid names, components outside the qualified profile in the
+	/// query or directory entries, ambiguous matches, non-directories, corrupt
+	/// metadata, source failures, and exhausted traversal or read limits.
+	pub fn lookup_native_name(
+		&mut self,
+		parent: InodeId,
+		name: &str,
+	) -> Result<Option<DirectoryEntry>, Error<S::Error>> {
+		let profile = self.name_profile();
+		if profile == NameProfile::Binary {
+			return self.lookup_stored_name(parent, name);
+		}
+		let wanted = profile.key(name)?;
+		self.find_directory_entry(parent, Corruption::EquivalentDirectoryNames, |stored| {
+			Ok(profile.key(stored)? == wanted)
+		})
+	}
+
+	fn find_directory_entry(
+		&mut self,
+		parent: InodeId,
+		duplicate: Corruption,
+		matches_name: impl Fn(&str) -> Result<bool, Error<S::Error>>,
+	) -> Result<Option<DirectoryEntry>, Error<S::Error>> {
 		let mut found = None;
 		self.scan_directory(parent, |_, entry| {
-			if entry.name == name {
+			if matches_name(entry.name)? {
 				if found.is_some() {
-					return Err(Corruption::DuplicateEntry.into());
+					return Err(duplicate.into());
 				}
 				found = Some(entry.into_owned()?);
 			}
