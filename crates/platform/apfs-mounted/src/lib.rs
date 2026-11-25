@@ -4,8 +4,10 @@
 
 #![cfg(target_os = "macos")]
 
+pub mod dataless;
 pub mod identity;
 mod scope;
+pub mod source;
 pub mod volume;
 
 pub use identity::{BirthTime, IdentityError, MountIdentity, ObjectIdentity};
