@@ -2,6 +2,9 @@ use apfs_reader::{Unsupported, XattrStorage};
 
 use super::*;
 
+#[path = "extended_attributes/finder_info.rs"]
+mod finder_info;
+
 const CHECKPOINT: TransactionId = TransactionId(6);
 const INODE: InodeId = InodeId::from_raw(199).unwrap();
 const MISSING_INODE: InodeId = InodeId::from_raw(500).unwrap();
@@ -146,9 +149,7 @@ fn enumerates_native_attributes_in_bounded_pages_and_checks_cursor_scope() {
 fn reads_inline_attributes_and_both_native_external_owner_forms() {
 	let source = container(fixture());
 	let mut view = open(&source);
-	let mut finder_bytes = [0; FINDER_INFO_BYTES];
-	finder_bytes[..FINDER_INFO_TYPE_AND_CREATOR.len()]
-		.copy_from_slice(FINDER_INFO_TYPE_AND_CREATOR);
+	let finder_bytes = finder_info_bytes();
 	let large_content = (0..LARGE_BYTES)
 		.map(|index| ((index * LARGE_PATTERN_STRIDE + index / BLOCK_BYTES) % PATTERN_MODULUS) as u8)
 		.collect::<Vec<_>>();
@@ -200,6 +201,12 @@ fn reads_inline_attributes_and_both_native_external_owner_forms() {
 		view.open_xattr(INODE, "invalid\0name"),
 		Err(Error::InvalidXattrName)
 	));
+}
+
+fn finder_info_bytes() -> [u8; FINDER_INFO_BYTES] {
+	let mut bytes = [0; FINDER_INFO_BYTES];
+	bytes[..FINDER_INFO_TYPE_AND_CREATOR.len()].copy_from_slice(FINDER_INFO_TYPE_AND_CREATOR);
+	bytes
 }
 
 #[test]
