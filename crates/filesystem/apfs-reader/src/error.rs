@@ -2,7 +2,7 @@ use core::fmt;
 
 use apfs_format::object::ObjectId;
 
-use crate::record::InodeId;
+use crate::{names::NameError, record::InodeId};
 
 /// Invalid structure encountered while reading a filesystem tree or record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,6 +22,7 @@ pub enum Corruption {
 	ExtendedFields,
 	DirectoryCount,
 	DuplicateEntry,
+	EquivalentDirectoryNames,
 	DuplicateInode,
 	RootInode,
 	DirectoryTarget,
@@ -93,6 +94,7 @@ pub enum Error<E> {
 	Unsupported(Unsupported),
 	Limit(Limit),
 	InvalidName,
+	Name(NameError),
 	InvalidXattrName,
 	InvalidCursor,
 	MissingInode(InodeId),
@@ -126,6 +128,12 @@ impl<E> From<Unsupported> for Error<E> {
 	}
 }
 
+impl<E> From<NameError> for Error<E> {
+	fn from(error: NameError) -> Self {
+		Self::Name(error)
+	}
+}
+
 impl<E: fmt::Display> fmt::Display for Error<E> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -136,6 +144,7 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 			}
 			Self::Limit(limit) => write!(f, "APFS filesystem read limit exceeded: {limit:?}"),
 			Self::InvalidName => f.write_str("invalid APFS name component"),
+			Self::Name(error) => write!(f, "APFS native name comparison failed: {error}"),
 			Self::InvalidXattrName => f.write_str("invalid APFS extended attribute name"),
 			Self::InvalidCursor => f.write_str("APFS cursor is outside this view or inode"),
 			Self::MissingInode(id) => write!(f, "APFS inode {} was not found", id.as_raw()),
@@ -162,6 +171,7 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
 	fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
 		match self {
 			Self::Container(error) => Some(error),
+			Self::Name(error) => Some(error),
 			_ => None,
 		}
 	}
