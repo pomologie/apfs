@@ -149,15 +149,19 @@ fn distinguishes_an_entire_native_hole_from_an_unreadable_allocated_block() {
 
 #[test]
 fn validates_whole_file_coverage_and_the_declared_sparse_count() {
-	for (offset, original) in [
+	const GAP_WITH_MATCHING_COUNT: &[(usize, u64)] = &[
 		(FIRST_HOLE_LENGTH_OFFSET, FIRST_WRITE as u64),
 		(SPARSE_FIELD_DATA_OFFSET, SPARSE_HOLE_BYTES),
-	] {
+	];
+	const BAD_COUNT_WITHOUT_GAP: &[(usize, u64)] = &[(SPARSE_FIELD_DATA_OFFSET, SPARSE_HOLE_BYTES)];
+	for changes in [GAP_WITH_MATCHING_COUNT, BAD_COUNT_WITHOUT_GAP] {
 		let mut image = fixture();
 		let leaf = image.0.get_mut(&FILESYSTEM_ROOT_BLOCK).unwrap();
-		let target = &mut leaf[offset..offset + size_of::<u64>()];
-		assert_eq!(target, original.to_le_bytes());
-		target.copy_from_slice(&(original - BLOCK_BYTES as u64).to_le_bytes());
+		for &(offset, original) in changes {
+			let target = &mut leaf[offset..offset + size_of::<u64>()];
+			assert_eq!(target, original.to_le_bytes());
+			target.copy_from_slice(&(original - BLOCK_BYTES as u64).to_le_bytes());
+		}
 		update_checksum(leaf);
 		let source = container(image);
 		assert!(matches!(
