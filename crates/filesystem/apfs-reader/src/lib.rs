@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod check;
 mod error;
 mod extent_refs;
 mod hard_links;
@@ -24,6 +25,7 @@ use apfs_format::{
 	superblock::Geometry,
 };
 
+pub use check::{CheckData, CheckOptions, CheckReport};
 pub use error::{Corruption, Error, Limit, Unsupported};
 pub use hard_links::{HardLink, SiblingId};
 pub use payload::FileData;
@@ -183,14 +185,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		})?;
 		if let Some(entry) = &found {
 			let inode = self.stat(entry.inode)?.ok_or(Corruption::DirectoryTarget)?;
-			let expects_parent =
-				matches!(inode.count, InodeCount::Children(_) | InodeCount::Links(1));
-			if inode.kind != entry.kind
-				|| inode.count == InodeCount::Links(0)
-				|| (expects_parent && inode.parent != Some(parent))
-			{
-				return Err(Corruption::DirectoryTarget.into());
-			}
+			verify_directory_target(parent, entry.kind, inode)?;
 			if entry.sibling.is_some()
 				|| matches!(inode.count, InodeCount::Links(count) if count > 1)
 			{
@@ -309,6 +304,21 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		}
 		Ok(count)
 	}
+}
+
+fn verify_directory_target(
+	parent: InodeId,
+	kind: FileKind,
+	inode: Inode,
+) -> Result<(), Corruption> {
+	let expects_parent = matches!(inode.count, InodeCount::Children(_) | InodeCount::Links(1));
+	if inode.kind != kind
+		|| inode.count == InodeCount::Links(0)
+		|| (expects_parent && inode.parent != Some(parent))
+	{
+		return Err(Corruption::DirectoryTarget);
+	}
+	Ok(())
 }
 
 fn stat<S: ReadAt>(

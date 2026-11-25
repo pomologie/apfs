@@ -28,7 +28,7 @@ const SLOT_BYTES: usize = 4 * size_of::<u16>();
 const INODE_NLINK_OFFSET: usize = 56;
 const SIBLING_NAME_OFFSET: usize = size_of::<u64>() + size_of::<u16>();
 
-fn fixture() -> Fixture {
+pub(super) fn fixture() -> Fixture {
 	Fixture::from_packed_blocks(include_bytes!("../fixtures/sonoma-hard-link-blocks.bin"))
 }
 
@@ -151,7 +151,13 @@ fn rejects_inconsistent_directory_links_counts_and_inverse_maps() {
 	}
 }
 
-fn mutate_value(source: &mut Fixture, oid: u64, kind: u64, within: usize, replacement: &[u8]) {
+pub(super) fn mutate_value(
+	source: &mut Fixture,
+	oid: u64,
+	kind: u64,
+	within: usize,
+	replacement: &[u8],
+) {
 	let block = source.0.get_mut(&FSROOT).unwrap();
 	let table = BTREE_DATA_OFFSET + usize::from(u16_at(block, BTREE_TABLE_OFFSET));
 	let keys = table + usize::from(u16_at(block, BTREE_TABLE_LENGTH_OFFSET));

@@ -12,7 +12,7 @@ use crate::{
 	Corruption, Error, FileKind, Inode, InodeId, StreamSizes, Unsupported, VolumeView,
 	extent_refs::References,
 	node::Slot,
-	record::Prefix,
+	record::{INODE_HAS_RESOURCE_FORK, INODE_NO_RESOURCE_FORK, Prefix},
 	walk,
 	wire::{U64_BYTES, u32_at, u64_at},
 	xattr::{COMPRESSION_ATTRIBUTE, SYMLINK_ATTRIBUTE, symlink_bytes},
@@ -23,8 +23,6 @@ const INODE_HAS_SECURITY_EA: u64 = 1 << 6;
 const INODE_HAS_FINDER_INFO: u64 = 1 << 8;
 const INODE_IS_SPARSE: u64 = 1 << 9;
 const INODE_WAS_EVER_CLONED: u64 = 1 << 10;
-const INODE_HAS_RESOURCE_FORK: u64 = 1 << 14;
-const INODE_NO_RESOURCE_FORK: u64 = 1 << 15;
 const INODE_HAS_UNCOMPRESSED_SIZE: u64 = 1 << 18;
 const SUPPORTED_INODE_DATA_FLAGS: u64 = INODE_HAS_SECURITY_EA
 	| INODE_HAS_FINDER_INFO
@@ -113,6 +111,13 @@ impl<S: ReadAt> FileData<'_, '_, S> {
 	#[must_use]
 	pub const fn is_empty(&self) -> bool {
 		self.length == 0
+	}
+
+	pub(crate) fn physical_ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
+		self.extents.iter().map(|extent| {
+			let length = extent.logical.end - extent.logical.start;
+			extent.physical..extent.physical + length
+		})
 	}
 
 	/// Fills the destination from the specified file byte offset. Empty reads

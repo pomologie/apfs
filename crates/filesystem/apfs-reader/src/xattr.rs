@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use core::{cmp::Ordering, num::NonZeroU16};
+use core::{cmp::Ordering, num::NonZeroU16, ops::Range};
 
 use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::object::ObjectId;
@@ -25,7 +25,7 @@ const SONOMA_EXTERNAL_USER_FLAGS: u16 = DATA_STREAM | SONOMA_EXTERNAL_USER_FLAG;
 const MAX_EMBEDDED_BYTES: usize = 3804;
 pub(crate) const COMPRESSION_ATTRIBUTE: &str = "com.apple.decmpfs";
 pub(crate) const SYMLINK_ATTRIBUTE: &str = "com.apple.fs.symlink";
-const RESOURCE_FORK_ATTRIBUTE: &str = "com.apple.ResourceFork";
+pub(crate) const RESOURCE_FORK_ATTRIBUTE: &str = "com.apple.ResourceFork";
 const FINDER_INFO_ATTRIBUTE: &str = "com.apple.FinderInfo";
 
 /// How an attribute stores its raw payload.
@@ -89,6 +89,15 @@ impl<S: ReadAt> XattrData<'_, '_, S> {
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.len() == 0
+	}
+
+	pub(crate) fn physical_ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
+		match &self.0 {
+			Data::Inline(_) => None,
+			Data::DataStream(data) => Some(data),
+		}
+		.into_iter()
+		.flat_map(FileData::physical_ranges)
 	}
 
 	/// Reads raw bytes at the requested attribute offset. Empty reads at EOF

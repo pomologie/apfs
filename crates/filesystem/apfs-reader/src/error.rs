@@ -23,6 +23,9 @@ pub enum Corruption {
 	DuplicateInode,
 	RootInode,
 	DirectoryTarget,
+	RepeatedDirectory,
+	RepeatedDataStream,
+	OverlappingPayloadExtents,
 	SiblingLink,
 	SiblingMap,
 	HardLinkCount,
@@ -34,6 +37,7 @@ pub enum Corruption {
 	ExtentMetadataAlias,
 	SymlinkRecord,
 	XattrRecord,
+	ResourceForkFlags,
 	DuplicateXattr,
 	PhysicalNode(apfs_format::Error),
 }
@@ -58,6 +62,7 @@ pub enum Unsupported {
 	XattrStorage(u16),
 	XattrStreamRecord,
 	InodeFinderInfo,
+	CheckFileKind(u16),
 	HardLinkKind,
 }
 
@@ -69,6 +74,11 @@ pub enum Limit {
 	Nodes,
 	Records,
 	Page,
+	CheckDirectoryDepth,
+	CheckDirectoryEntries,
+	CheckAttributes,
+	CheckExtentRanges,
+	CheckPayloadBytes,
 }
 
 /// An APFS filesystem metadata operation failed.
@@ -91,6 +101,7 @@ pub enum Error<E> {
 		length: u64,
 	},
 	Allocation,
+	Cancelled,
 }
 
 impl<E> From<apfs_container::Error<E>> for Error<E> {
@@ -137,6 +148,7 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 				)
 			}
 			Self::Allocation => f.write_str("could not allocate APFS filesystem read buffer"),
+			Self::Cancelled => f.write_str("APFS filesystem verification cancelled"),
 		}
 	}
 }
