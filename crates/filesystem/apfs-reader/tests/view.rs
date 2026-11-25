@@ -412,7 +412,11 @@ fn enforces_per_tree_scan_and_page_limits() {
 	));
 }
 
+#[path = "view/reachable_check.rs"]
 mod check;
+#[path = "view/hard_links.rs"]
 mod hard_links;
+#[path = "view/file_payloads.rs"]
 mod payload;
+#[path = "view/extended_attributes.rs"]
 mod xattr;
