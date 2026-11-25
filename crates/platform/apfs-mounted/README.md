@@ -16,7 +16,7 @@ Use `Directory::from_file` with a directory the caller already authorized. The c
 
 Identities and source stamps describe live observations. Reopen and validate a fresh handle when recovering from a persisted record. Advisory leases coordinate cooperating writers. Copy grants, intent sequencing, verification digests, publication receipts, and reconciliation policy belong to the operation engine.
 
-Native ABI calls are confined to documented function-level allowances under the crate's `deny(unsafe_code)` policy. The portable crates retain their workspace prohibition. Run the hosted wrapper suite with `cargo test --locked -p apfs-mounted`.
+The crate's `deny(unsafe_code)` policy permits documented item-level exceptions for Darwin ABI bindings and checked descriptor close. The portable crates retain their workspace prohibition. Run the hosted wrapper suite with `cargo test --locked -p apfs-mounted`.
 
 ## ExaCopy integration
 

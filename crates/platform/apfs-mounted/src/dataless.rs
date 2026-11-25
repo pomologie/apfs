@@ -2,7 +2,6 @@
 
 use std::{error::Error, fmt, io, marker::PhantomData};
 
-#[allow(unsafe_code)]
 mod darwin;
 #[cfg(test)]
 mod tests;
