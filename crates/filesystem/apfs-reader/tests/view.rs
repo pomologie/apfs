@@ -418,5 +418,7 @@ mod check;
 mod hard_links;
 #[path = "view/file_payloads.rs"]
 mod payload;
+#[path = "view/sparse_files.rs"]
+mod sparse;
 #[path = "view/extended_attributes.rs"]
 mod xattr;

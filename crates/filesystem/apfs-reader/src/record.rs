@@ -27,6 +27,7 @@ const INODE_MODIFIED: usize = 24;
 const INODE_CHANGED: usize = 32;
 const INODE_ACCESSED: usize = 40;
 const INODE_FLAGS: usize = 48;
+pub(crate) const INODE_IS_SPARSE: u64 = 1 << 9;
 pub(crate) const INODE_HAS_RESOURCE_FORK: u64 = 1 << 14;
 pub(crate) const INODE_NO_RESOURCE_FORK: u64 = 1 << 15;
 const INODE_DIRECTORY_COUNT_OR_LINKS: usize = 56;
@@ -50,10 +51,12 @@ const TYPE_REGULAR: u16 = 8;
 const TYPE_SYMLINK: u16 = 10;
 const XFIELD_HEADER_BYTES: usize = 4;
 const XFIELD_DESCRIPTOR_BYTES: usize = 4;
+const XFIELD_FLAGS_OFFSET: usize = 1;
 const XFIELD_LENGTH_OFFSET: usize = 2;
 const XFIELD_NAME: u8 = 4;
 const XFIELD_FINDER_INFO: u8 = 7;
 const XFIELD_DATA_STREAM: u8 = 8;
+const XFIELD_SPARSE_BYTES: u8 = 13;
 const DREC_XFIELD_SIBLING_ID: u8 = 1;
 const DATA_STREAM_BYTES: usize = 5 * U64_BYTES;
 const STREAM_SIZE: usize = 0;
@@ -155,8 +158,26 @@ pub struct Inode {
 	pub bsd_flags: u32,
 	pub internal_flags: u64,
 	pub stream: Option<StreamSizes>,
+	pub(crate) sparse: Option<SparseField>,
 	pub(crate) other_data_field: Option<u8>,
 	pub(crate) has_finder_info_field: bool,
+}
+
+impl Inode {
+	/// The inode's declared sparse byte count, when present.
+	#[must_use]
+	pub const fn sparse_bytes(&self) -> Option<u64> {
+		match self.sparse {
+			Some(field) => Some(field.bytes),
+			None => None,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SparseField {
+	pub(crate) bytes: u64,
+	pub(crate) flags: u8,
 }
 
 /// One directory record. Its target is volume-local, and filesystem metadata
@@ -274,14 +295,22 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		InodeCount::Links(count)
 	};
 	let mut stream = None;
+	let mut sparse = None;
 	let mut other_data_field = None;
 	let mut has_finder_info_field = false;
-	xfields(&value[INODE_BYTES..], |tag, data| {
+	xfields(&value[INODE_BYTES..], |tag, flags, data| {
 		match tag {
 			XFIELD_NAME => {
 				decode_name(data)?;
 			}
 			XFIELD_DATA_STREAM => stream = Some(stream_sizes(data, Corruption::ExtendedFields)?),
+			XFIELD_SPARSE_BYTES if data.len() == U64_BYTES => {
+				sparse = Some(SparseField {
+					bytes: u64_at(data, 0)?,
+					flags,
+				});
+			}
+			XFIELD_SPARSE_BYTES => return Err(Corruption::ExtendedFields),
 			XFIELD_FINDER_INFO if data.len() == FINDER_INFO_BYTES => has_finder_info_field = true,
 			XFIELD_FINDER_INFO => return Err(Corruption::ExtendedFields),
 			_ => {
@@ -299,6 +328,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		count,
 		mode,
 		stream,
+		sparse,
 		other_data_field,
 		has_finder_info_field,
 		times: Times {
@@ -380,7 +410,7 @@ pub(crate) fn directory<'a, E>(
 		return Err(Unsupported::DirectoryEntryFlags(flags).into());
 	}
 	let mut sibling = None;
-	xfields(&value[ENTRY_BYTES..], |tag, data| {
+	xfields(&value[ENTRY_BYTES..], |tag, _, data| {
 		if tag != DREC_XFIELD_SIBLING_ID {
 			return Err(Unsupported::DirectoryExtendedField(tag).into());
 		}
@@ -422,7 +452,7 @@ pub(crate) fn decode_name(data: &[u8]) -> Result<&str, Corruption> {
 
 fn xfields<E: From<Corruption>>(
 	data: &[u8],
-	mut emit: impl FnMut(u8, &[u8]) -> Result<(), E>,
+	mut emit: impl FnMut(u8, u8, &[u8]) -> Result<(), E>,
 ) -> Result<(), E> {
 	if data.is_empty() {
 		return Ok(());
@@ -442,8 +472,11 @@ fn xfields<E: From<Corruption>>(
 		if core::mem::replace(&mut seen[usize::from(tag)], true) {
 			return Err(Corruption::ExtendedFields.into());
 		}
+		let flags = *data
+			.get(at + XFIELD_FLAGS_OFFSET)
+			.ok_or(Corruption::ExtendedFields)?;
 		let length = usize::from(u16_at(data, at + XFIELD_LENGTH_OFFSET)?);
-		emit(tag, bytes(data, next_value, length)?)?;
+		emit(tag, flags, bytes(data, next_value, length)?)?;
 		next_value += length.next_multiple_of(U64_BYTES);
 	}
 	if next_value != data.len() {

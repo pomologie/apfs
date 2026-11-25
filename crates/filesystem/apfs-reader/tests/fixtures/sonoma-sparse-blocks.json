@@ -1,0 +1,276 @@
+{
+  "source": "Byte-for-byte blocks from a disposable Apple APFS image populated using POSIX sparse writes.",
+  "license": "Apache-2.0; synthetic data only",
+  "requirement": "A-READ-02-T02",
+  "os": "14.7.2",
+  "build": "23H311",
+  "architecture": "arm64",
+  "commands": [
+    [
+      "/usr/bin/hdiutil",
+      "create",
+      "-size",
+      "64m",
+      "-type",
+      "UDIF",
+      "-fs",
+      "APFS",
+      "-volname",
+      "Pomologie APFS Sparse",
+      "-nospotlight",
+      "-layout",
+      "NONE",
+      "$scratch/sparse.dmg"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "attach",
+      "-readwrite",
+      "-nobrowse",
+      "-noautoopen",
+      "-plist",
+      "-mountpoint",
+      "$scratch/write",
+      "-mount",
+      "required",
+      "$scratch/sparse.dmg"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "detach",
+      "$plist_backing_device"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "attach",
+      "-readonly",
+      "-nobrowse",
+      "-noautoopen",
+      "-plist",
+      "-mountpoint",
+      "$scratch/readonly",
+      "-mount",
+      "required",
+      "$scratch/sparse.dmg"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "detach",
+      "$plist_backing_device"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "convert",
+      "$scratch/sparse.dmg",
+      "-format",
+      "UDTO",
+      "-o",
+      "$scratch/sparse.raw",
+      "-quiet"
+    ],
+    [
+      "/sbin/fsck_apfs",
+      "-n",
+      "$scratch/sparse.raw.cdr"
+    ]
+  ],
+  "generated_files": {
+    "sparse.bin": {
+      "logical_bytes": 786469,
+      "writes": [
+        {
+          "offset_bytes": 131072,
+          "length_bytes": 4096,
+          "formula": "(17 * index + 23) % 251"
+        },
+        {
+          "offset_bytes": 524288,
+          "length_bytes": 4096,
+          "formula": "(29 * index + 67) % 253"
+        }
+      ],
+      "resource_fork": {
+        "pattern": "APFS sparse-file resource fork\n",
+        "repetitions": 174
+      },
+      "method": "Create with mode 0600, pwrite each block, ftruncate, fsync and close. Write the resource fork through ..namedfork/rsrc, then fsync it."
+    },
+    "all-hole.bin": {
+      "logical_bytes": 12317,
+      "method": "Create with mode 0600, ftruncate with no writes, fsync and close."
+    }
+  },
+  "native_read_only_mount": {
+    "matched_every_logical_byte": true,
+    "matched_every_resource_fork_byte": true,
+    "native_posix_stat_and_seek_results": {
+      "sparse.bin": {
+        "inode": 16,
+        "size": 786469,
+        "allocated_512_byte_blocks": 80,
+        "sha256": "9cc42bdfbe71c7857b4e2e3e571c81a1a7ab7e7861fe5a7eb4e9eb7253c8a62b",
+        "resource_bytes": 5394,
+        "resource_sha256": "aa38c87b3ff32a02be4c168d094d95997c430487fea0459a214144101ead08ae",
+        "seek_data_half_open_ranges": [
+          [
+            131072,
+            147456
+          ],
+          [
+            524288,
+            540672
+          ]
+        ]
+      },
+      "all-hole.bin": {
+        "inode": 17,
+        "size": 12317,
+        "allocated_512_byte_blocks": 0,
+        "sha256": "810235e99143603bd1de7129149c8407733b95ca6951303fd3c32b0898687445",
+        "seek_data_half_open_ranges": []
+      }
+    }
+  },
+  "native_checker": {
+    "checkpoint_xid": 4,
+    "exit_code": 0,
+    "tool_version": "2236.141.1",
+    "volume_uuid": "697EF29D-6C37-46C2-9FFF-24BEA7A365A9",
+    "scope": "Offline read-only full raw-image check. Regular-file device queries warned; fsroot, extent references and allocated space checked successfully."
+  },
+  "decoded": {
+    "volume_id": 1026,
+    "volume_superblock": 218,
+    "filesystem_root": 212,
+    "filesystem_root_xid": 3,
+    "extent_reference_root": 202,
+    "inode_sparse_bit": "0x0200",
+    "sparse_xfield_type": 13,
+    "sparse_xfield_flags": "0x28",
+    "sparse_xfield_value_encoding": "Little-endian u64 count covering the full logical extents, including a hole tail beyond logical EOF.",
+    "file_stream_reference_count": 1,
+    "extent_fields": [
+      "logical_offset_bytes",
+      "length_bytes",
+      "physical_block"
+    ],
+    "extent_flags_and_crypto_id": 0,
+    "sparse.bin": {
+      "inode": 16,
+      "inode_flags": "0x4200",
+      "allocated_stream_bytes": 790528,
+      "sparse_stream_bytes": 757760,
+      "extents": [
+        [
+          0,
+          131072,
+          0
+        ],
+        [
+          131072,
+          4096,
+          201
+        ],
+        [
+          135168,
+          12288,
+          203
+        ],
+        [
+          147456,
+          376832,
+          0
+        ],
+        [
+          524288,
+          16384,
+          206
+        ],
+        [
+          540672,
+          249856,
+          0
+        ]
+      ],
+      "resource_stream": {
+        "id": 18,
+        "logical_bytes": 5394,
+        "allocated_bytes": 8192,
+        "first_physical_block": 210
+      },
+      "physical_reference_fields": [
+        "physical_block",
+        "block_count",
+        "owner",
+        "refcount"
+      ],
+      "physical_references": [
+        [
+          201,
+          1,
+          16,
+          1
+        ],
+        [
+          203,
+          9,
+          16,
+          1
+        ]
+      ]
+    },
+    "all-hole.bin": {
+      "inode": 17,
+      "inode_flags": "0x8200",
+      "allocated_stream_bytes": 16384,
+      "sparse_stream_bytes": 16384,
+      "extents": [
+        [
+          0,
+          16384,
+          0
+        ]
+      ]
+    }
+  },
+  "block_bytes": 4096,
+  "raw_length": 67108864,
+  "raw_sha256": "7309515f24ea3e0d055c7925f1600b2e1f523a3f5de2fe8a50002291b3ff855c",
+  "fixtures": {
+    "file": "sonoma-sparse-blocks.bin",
+    "blocks": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      19,
+      20,
+      21,
+      22,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      212,
+      213,
+      214,
+      218,
+      219,
+      220
+    ],
+    "encoding": "Each record contains a little-endian u64 physical block address followed by 4096 original bytes.",
+    "sha256": "639a6746c211789e801dd731c7f9bacd70e1d96a39a1eda7323f312f8c3d37e2"
+  }
+}

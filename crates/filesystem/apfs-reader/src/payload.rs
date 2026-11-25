@@ -14,7 +14,7 @@ use crate::{
 	Corruption, Error, FileKind, Inode, InodeId, StreamSizes, Unsupported, VolumeView,
 	extent_refs::References,
 	node::Slot,
-	record::{INODE_HAS_RESOURCE_FORK, INODE_NO_RESOURCE_FORK, Prefix},
+	record::{INODE_HAS_RESOURCE_FORK, INODE_IS_SPARSE, INODE_NO_RESOURCE_FORK, Prefix},
 	walk,
 	wire::{U64_BYTES, u32_at, u64_at},
 	xattr::{COMPRESSION_ATTRIBUTE, SYMLINK_ATTRIBUTE, symlink_bytes},
@@ -23,13 +23,16 @@ use crate::{
 const INODE_WAS_CLONED: u64 = 1 << 4;
 const INODE_HAS_SECURITY_EA: u64 = 1 << 6;
 const INODE_HAS_FINDER_INFO: u64 = 1 << 8;
-const INODE_IS_SPARSE: u64 = 1 << 9;
 const INODE_WAS_EVER_CLONED: u64 = 1 << 10;
 const INODE_HAS_UNCOMPRESSED_SIZE: u64 = 1 << 18;
 const SUPPORTED_INODE_DATA_FLAGS: u64 = INODE_HAS_SECURITY_EA
 	| INODE_HAS_FINDER_INFO
+	| INODE_IS_SPARSE
 	| INODE_HAS_RESOURCE_FORK
 	| INODE_NO_RESOURCE_FORK;
+const XFIELD_CHILDREN_INHERIT: u8 = 1 << 3;
+const XFIELD_SYSTEM_FIELD: u8 = 1 << 5;
+const SPARSE_FIELD_FLAGS: u8 = XFIELD_CHILDREN_INHERIT | XFIELD_SYSTEM_FIELD;
 const BSD_COMPRESSED: u32 = 1 << 5;
 const DATA_STREAM_REFCOUNT_BYTES: usize = size_of::<u32>();
 const UNSHARED_REFCOUNT: u32 = 1;
@@ -39,6 +42,8 @@ const EXTENT_KEY_BYTES: usize = 2 * U64_BYTES;
 const EXTENT_VALUE_BYTES: usize = 3 * U64_BYTES;
 const EXTENT_BLOCK_OFFSET: usize = U64_BYTES;
 const EXTENT_CRYPTO_OFFSET: usize = 2 * U64_BYTES;
+const HOLE_BLOCK: BlockAddress = BlockAddress(0);
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReservedBlocks {
 	container_map: BlockAddress,
@@ -91,7 +96,8 @@ fn overlaps_area(blocks: &Range<u64>, area: Area) -> bool {
 #[derive(Debug)]
 struct Extent {
 	logical: Range<u64>,
-	physical: u64,
+	// An absent physical address represents an admitted explicit hole.
+	physical: Option<u64>,
 }
 
 /// Exact data for an admitted ordinary APFS file in one immutable volume view.
@@ -116,9 +122,10 @@ impl<S: ReadAt> FileData<'_, '_, S> {
 	}
 
 	pub(crate) fn physical_ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
-		self.extents.iter().map(|extent| {
+		self.extents.iter().filter_map(|extent| {
 			let length = extent.logical.end - extent.logical.start;
-			extent.physical..extent.physical + length
+			let physical = extent.physical?;
+			Some(physical..physical + length)
 		})
 	}
 
@@ -146,8 +153,12 @@ impl<S: ReadAt> FileData<'_, '_, S> {
 			let take = (extent.logical.end - logical).min(destination.len() as u64) as usize;
 			let (head, tail) = destination.split_at_mut(take);
 			// Admission established complete logical coverage and in-container physical bytes.
-			let physical = extent.physical + (logical - extent.logical.start);
-			self.objects.read_physical_at(ByteOffset(physical), head)?;
+			if let Some(physical) = extent.physical {
+				let offset = physical + (logical - extent.logical.start);
+				self.objects.read_physical_at(ByteOffset(offset), head)?;
+			} else {
+				head.fill(0);
+			}
 			logical += take as u64;
 			destination = tail;
 		}
@@ -160,8 +171,9 @@ impl<S: ReadAt> FileData<'_, '_, S> {
 
 impl<'source, S: ReadAt> VolumeView<'source, S> {
 	/// Opens an ordinary regular file for exact byte reads in this view.
-	/// Its non-sparse logical extents must be continuous, unshared, and owned
-	/// by the declared data stream in the selected extent-reference tree.
+	/// The extent records must cover the stream continuously. Mapped extents
+	/// must be unshared and owned by the declared data stream. Explicit holes
+	/// require matching sparse inode metadata and read as zeroes.
 	/// A missing inode returns `None`.
 	///
 	/// # Errors
@@ -185,7 +197,10 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			return Err(Unsupported::CompressedData.into());
 		}
 		self.open_stream(
-			StreamKind::File(inode.data_stream_id),
+			StreamKind::File {
+				id: inode.data_stream_id,
+				sparse_bytes: inode.sparse_bytes(),
+			},
 			inode.stream.unwrap_or(StreamSizes {
 				logical_bytes: 0,
 				allocated_bytes: 0,
@@ -208,17 +223,22 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			allocated_bytes: allocated,
 			..
 		} = stream;
+		let (id, owner, sparse_bytes) = match kind {
+			StreamKind::File { id, sparse_bytes } => (id, id, sparse_bytes),
+			StreamKind::Xattr { id, owner } => (id, owner, None),
+		};
+		// In the qualified sparse layout, the stream span includes explicit holes and EOF padding.
 		let block_bytes = u64::from(self.geometry.block_bytes());
-		if length > allocated || !allocated.is_multiple_of(block_bytes) {
+		if length > allocated
+			|| !allocated.is_multiple_of(block_bytes)
+			|| sparse_bytes
+				.is_some_and(|bytes| bytes > allocated || !bytes.is_multiple_of(block_bytes))
+		{
 			return Err(Corruption::ExtentCoverage.into());
 		}
-		let (id, owner) = match kind {
-			StreamKind::File(id) => (id, id),
-			StreamKind::Xattr { id, owner } => (id, owner),
-		};
 		self.validate_data_stream(id, kind, allocated)?;
-		let mut extents = self.file_extents(id, allocated)?;
-		if !extents.is_empty() {
+		let mut extents = self.file_extents(id, allocated, sparse_bytes)?;
+		if extents.iter().any(|extent| extent.physical.is_some()) {
 			self.verify_extent_references(owner, &mut extents)?;
 		}
 		Ok(FileData {
@@ -279,7 +299,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			},
 		)?;
 		match kind {
-			StreamKind::File(_) if allocated != 0 && !seen => {
+			StreamKind::File { .. } if allocated != 0 && !seen => {
 				return Err(Corruption::StreamRecord.into());
 			}
 			StreamKind::Xattr { .. } if seen => return Err(Unsupported::XattrStreamRecord.into()),
@@ -292,8 +312,10 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		&mut self,
 		id: ObjectId,
 		allocated: u64,
+		sparse_bytes: Option<u64>,
 	) -> Result<Vec<Extent>, Error<S::Error>> {
 		let mut logical = 0;
+		let mut remaining_sparse = sparse_bytes.unwrap_or_default();
 		let mut extents = Vec::new();
 		let geometry = self.geometry;
 		walk::scan(
@@ -302,9 +324,14 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			Prefix::file_extents(id),
 			self.limits,
 			|slot| {
-				let extent = file_extent(slot, geometry)?;
+				let extent = file_extent(slot, geometry, sparse_bytes.is_some())?;
 				if extent.logical.start != logical || extent.logical.end > allocated {
 					return Err(Corruption::ExtentCoverage.into());
+				}
+				if extent.physical.is_none() {
+					remaining_sparse = remaining_sparse
+						.checked_sub(extent.logical.end - extent.logical.start)
+						.ok_or(Corruption::ExtentCoverage)?;
 				}
 				logical = extent.logical.end;
 				extents.try_reserve(1).map_err(|_| Error::Allocation)?;
@@ -312,7 +339,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 				Ok(())
 			},
 		)?;
-		if logical != allocated {
+		if logical != allocated || remaining_sparse != 0 {
 			return Err(Corruption::ExtentCoverage.into());
 		}
 		Ok(extents)
@@ -332,8 +359,10 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		let root = mapping.address.0..mapping.address.0 + u64::from(mapping.size) / block_bytes;
 		let mut previous_end = 0;
 		extents.sort_unstable_by_key(|extent| extent.physical);
-		for extent in extents.iter() {
-			let blocks = extent_blocks(extent, block_bytes);
+		for blocks in extents
+			.iter()
+			.filter_map(|extent| extent_blocks(extent, block_bytes))
+		{
 			if blocks.start < previous_end {
 				return Err(Corruption::ExtentCoverage.into());
 			}
@@ -346,8 +375,11 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 			previous_end = blocks.end;
 		}
 		let mut references = References::new(&mut self.objects, self.geometry, self.limits);
-		for extent in extents.iter() {
-			references.verify(extent_blocks(extent, block_bytes), owner)?;
+		for blocks in extents
+			.iter()
+			.filter_map(|extent| extent_blocks(extent, block_bytes))
+		{
+			references.verify(blocks, owner)?;
 		}
 		extents.sort_unstable_by_key(|extent| extent.logical.start);
 		Ok(())
@@ -356,8 +388,14 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 
 #[derive(Clone, Copy)]
 pub(crate) enum StreamKind {
-	File(ObjectId),
-	Xattr { id: ObjectId, owner: ObjectId },
+	File {
+		id: ObjectId,
+		sparse_bytes: Option<u64>,
+	},
+	Xattr {
+		id: ObjectId,
+		owner: ObjectId,
+	},
 }
 
 pub(crate) fn checked_read_end<E>(
@@ -382,7 +420,13 @@ fn validate_inode<E>(inode: Inode) -> Result<(), Error<E>> {
 	if flags & (INODE_WAS_CLONED | INODE_WAS_EVER_CLONED) != 0 {
 		return Err(Unsupported::SharedData.into());
 	}
-	if flags & INODE_IS_SPARSE != 0 {
+	let sparse_flag = flags & INODE_IS_SPARSE != 0;
+	if sparse_flag != inode.sparse.is_some()
+		|| inode.sparse.is_some_and(|field| {
+			inode.kind != FileKind::Regular
+				|| field.flags != SPARSE_FIELD_FLAGS
+				|| inode.stream.is_none()
+		}) {
 		return Err(Unsupported::SparseData.into());
 	}
 	if flags & INODE_HAS_UNCOMPRESSED_SIZE != 0 || inode.bsd_flags & BSD_COMPRESSED != 0 {
@@ -403,7 +447,7 @@ fn validate_inode<E>(inode: Inode) -> Result<(), Error<E>> {
 	Ok(())
 }
 
-fn file_extent<E>(slot: Slot<'_>, geometry: Geometry) -> Result<Extent, Error<E>> {
+fn file_extent<E>(slot: Slot<'_>, geometry: Geometry, sparse: bool) -> Result<Extent, Error<E>> {
 	if slot.key.len() != EXTENT_KEY_BYTES || slot.value.len() != EXTENT_VALUE_BYTES {
 		return Err(Corruption::ExtentRecord.into());
 	}
@@ -415,7 +459,7 @@ fn file_extent<E>(slot: Slot<'_>, geometry: Geometry) -> Result<Extent, Error<E>
 	}
 	let length = length_flags & EXTENT_LENGTH_MASK;
 	let block = BlockAddress(u64_at(slot.value, EXTENT_BLOCK_OFFSET)?);
-	if block.0 == 0 {
+	if block == HOLE_BLOCK && !sparse {
 		return Err(Unsupported::SparseData.into());
 	}
 	if u64_at(slot.value, EXTENT_CRYPTO_OFFSET)? != 0 {
@@ -428,17 +472,24 @@ fn file_extent<E>(slot: Slot<'_>, geometry: Geometry) -> Result<Extent, Error<E>
 	let end = logical
 		.checked_add(length)
 		.ok_or(Corruption::ExtentCoverage)?;
-	let physical = geometry
-		.byte_range(block, length / block_bytes)
-		.map_err(Corruption::PhysicalNode)?;
+	let physical = if block == HOLE_BLOCK {
+		None
+	} else {
+		Some(
+			geometry
+				.byte_range(block, length / block_bytes)
+				.map_err(Corruption::PhysicalNode)?
+				.start,
+		)
+	};
 	Ok(Extent {
 		logical: logical..end,
-		physical: physical.start,
+		physical,
 	})
 }
 
-fn extent_blocks(extent: &Extent, block_bytes: u64) -> Range<u64> {
-	let start = extent.physical / block_bytes;
+fn extent_blocks(extent: &Extent, block_bytes: u64) -> Option<Range<u64>> {
+	let start = extent.physical? / block_bytes;
 	let blocks = (extent.logical.end - extent.logical.start) / block_bytes;
-	start..start + blocks
+	Some(start..start + blocks)
 }
