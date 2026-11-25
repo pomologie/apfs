@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use super::{tables, NameError};
+use super::{NameError, tables};
 
 // Unicode 9 full canonical decompositions contain at most four scalars.
 const MAX_DECOMPOSED_SCALARS: usize = 4;
