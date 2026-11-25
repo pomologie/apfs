@@ -1,0 +1,113 @@
+{
+  "source": "macOS hdiutil create of an empty synthetic partitionless APFS volume, followed by native raw export",
+  "license": "Apache-2.0; synthetic data only",
+  "os": "14.7.2",
+  "build": "23H311",
+  "architecture": "arm64",
+  "commands": [
+    [
+      "/usr/bin/hdiutil",
+      "create",
+      "-size",
+      "64m",
+      "-fs",
+      "APFS",
+      "-volname",
+      "Pomologie APFS Fixture",
+      "-layout",
+      "NONE",
+      "apple-apfs.dmg"
+    ],
+    [
+      "/usr/bin/hdiutil",
+      "convert",
+      "apple-apfs.dmg",
+      "-format",
+      "UDTO",
+      "-o",
+      "apple-apfs.raw",
+      "-quiet"
+    ]
+  ],
+  "raw_sha256": "0d92e5af4eafa06950f4ed3a8204b32a4b72d031871e4312380ac710ac29bfd9",
+  "raw_length": 67108864,
+  "block_size": 4096,
+  "block_count": 16384,
+  "fixtures": {
+    "native-block-0.bin": {
+      "physical_block": 0,
+      "sha256": "41884c0c1c1e020f5d074eaf4caf2a8076df971f6027d79a12abda59c7540648",
+      "checksum": "46653a58ffa467b1",
+      "xid": 2
+    },
+    "native-block-1.bin": {
+      "physical_block": 1,
+      "sha256": "b9dd286ccd61185465d06371eebdfae6786155b39f22b60dbaf4a4cf7bbef1af",
+      "checksum": "809e252d3f61b296",
+      "xid": 1
+    },
+    "native-block-2.bin": {
+      "physical_block": 2,
+      "sha256": "2c37f5e074574d8f64a8131cc5660dee7318a4aa9c7f11cb9f41906bdb1dc1b2",
+      "checksum": "776e3d73f4ab9ec4",
+      "xid": 1
+    },
+    "native-block-3.bin": {
+      "physical_block": 3,
+      "sha256": "e4ad1f57a35233dedf7c64237661d317ffa1ebf92193c0cf7e54e49c1cbaf2dd",
+      "checksum": "81393fa03ec66fe0",
+      "xid": 2
+    },
+    "native-block-4.bin": {
+      "physical_block": 4,
+      "sha256": "e3aa2b4a6a948a53e0224780d9d6150645dd45dd2bcf967832bdf2fa9f80ffc6",
+      "checksum": "4665313affa470d2",
+      "xid": 2
+    }
+  },
+  "verified_zero_blocks": [
+    5,
+    6,
+    7,
+    8
+  ],
+  "checkpoint_oracle": {
+    "command": [
+      "/sbin/fsck_apfs",
+      "-n",
+      "apple-apfs.raw.cdr"
+    ],
+    "exit_code": 0,
+    "selected_xid": 2,
+    "volume_tool_version": "2236.141.1",
+    "source_warnings": "Regular-file device features were unavailable. The offline read-only container check completed."
+  },
+  "object_map_oracle": {
+    "same_command_as_checkpoint_oracle": true,
+    "container_object_map_checked": true,
+    "checked_volume_name": "Pomologie APFS Fixture",
+    "checked_volume_uuid": "55DD69C3-CB57-4400-BD30-06760ACEEAEF",
+    "decoded_block_expectations": {
+      "xid_1_empty_root": 192,
+      "xid_2_root": 200,
+      "volume_oid": 1026,
+      "volume_mapping_xid": 2,
+      "volume_superblock": 198
+    }
+  },
+  "volume_object_map_oracle": {
+    "same_command_as_checkpoint_oracle": true,
+    "volume_object_map_and_fsroot_checked": true,
+    "decoded_block_expectations": {
+      "volume_oid": 1026,
+      "volume_object_map": 193,
+      "map_flags": 0,
+      "volume_object_map_root": 194,
+      "filesystem_root_oid": 1028,
+      "filesystem_root_xid": 2,
+      "filesystem_root_physical_block": 197,
+      "filesystem_root_object_type": 2,
+      "filesystem_root_object_subtype": 14
+    }
+  }
+}

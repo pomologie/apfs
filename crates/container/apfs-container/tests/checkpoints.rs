@@ -50,7 +50,7 @@ const LATEST_XID: TransactionId = TransactionId(2);
 macro_rules! native_block {
 	($address:literal) => {
 		*include_bytes!(concat!(
-			"../../../../tests/fixtures/native-block-",
+			"fixtures/native-block-",
 			stringify!($address),
 			".bin"
 		))

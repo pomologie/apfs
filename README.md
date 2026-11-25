@@ -12,7 +12,7 @@ Container volume discovery resolves ordinary unencrypted volume superblocks thro
 
 `apfs-reader` uses the selected volume's object map to page directories, look up exact stored names, and read inode metadata and inline link targets. It checks extent coverage and reference ownership before reading qualified unshared file payloads. It also reads inline attributes and qualified external attributes, including resource forks. Native fixtures cover split filesystem trees, nonadjacent extents, and both external attribute ownership forms. [Reader evidence](crates/filesystem/apfs-reader/README.md)
 
-Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume label and UUID. [Fixture provenance](tests/fixtures/native-apfs.json)
+Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume label and UUID. [Fixture provenance](crates/container/apfs-container/tests/fixtures/native-apfs.json)
 
 ```sh
 cargo nextest run --locked

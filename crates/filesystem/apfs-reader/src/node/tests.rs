@@ -9,7 +9,7 @@ use super::*;
 
 const NATIVE: &[u8; 4096] = include_bytes!("../../tests/fixtures/sonoma-populated-fsroot.bin");
 const SOURCE_LENGTH: u64 = 64 << 20;
-const NATIVE_SUPERBLOCK: &[u8] = include_bytes!("../../../../../tests/fixtures/native-block-0.bin");
+const NATIVE_SUPERBLOCK: &[u8] = include_bytes!("../../tests/fixtures/native-block-0.bin");
 const ROOT_OID: ObjectId = ObjectId(1028);
 const ROOT_XID: TransactionId = TransactionId(3);
 const NATIVE_ENTRIES: usize = 30;

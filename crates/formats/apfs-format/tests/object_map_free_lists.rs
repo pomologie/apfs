@@ -9,7 +9,7 @@ use apfs_format::{
 
 const BLOCK_BYTES: usize = 4096;
 const DEVICE_BYTES: u64 = 64 << 20;
-const BOOTSTRAP: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-0.bin");
+const BOOTSTRAP: &[u8] = include_bytes!("fixtures/native-block-0.bin");
 const CONTAINER_NODE: &[u8; BLOCK_BYTES] =
 	include_bytes!("fixtures/sonoma-populated-omap-container.bin");
 const VOLUME_NODE: &[u8; BLOCK_BYTES] = include_bytes!("fixtures/sonoma-populated-omap-volume.bin");

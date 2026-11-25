@@ -6,11 +6,11 @@ use apfs_format::{
 };
 
 const DEVICE_SIZE: u64 = 64 * 1024 * 1024;
-const BOOTSTRAP: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-0.bin");
-const FIRST_MAP: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-1.bin");
-const FIRST_CHECKPOINT: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-2.bin");
-const SECOND_MAP: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-3.bin");
-const SECOND_CHECKPOINT: &[u8] = include_bytes!("../../../../tests/fixtures/native-block-4.bin");
+const BOOTSTRAP: &[u8] = include_bytes!("fixtures/native-block-0.bin");
+const FIRST_MAP: &[u8] = include_bytes!("fixtures/native-block-1.bin");
+const FIRST_CHECKPOINT: &[u8] = include_bytes!("fixtures/native-block-2.bin");
+const SECOND_MAP: &[u8] = include_bytes!("fixtures/native-block-3.bin");
+const SECOND_CHECKPOINT: &[u8] = include_bytes!("fixtures/native-block-4.bin");
 
 #[test]
 fn native_bootstrap_geometry_and_checksums() {

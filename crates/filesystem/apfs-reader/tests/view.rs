@@ -35,7 +35,7 @@ const PRIVATE_INODE: InodeId = InodeId::from_raw(3).unwrap();
 macro_rules! native_block {
 	($address:literal) => {
 		*include_bytes!(concat!(
-			"../../../../tests/fixtures/native-block-",
+			"fixtures/native-block-",
 			stringify!($address),
 			".bin"
 		))
