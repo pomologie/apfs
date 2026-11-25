@@ -1,10 +1,19 @@
 [workspace]
 resolver = "3"
 members = [
+	# Container
 	"crates/container/apfs-container",
+
+	# Filesystem
 	"crates/filesystem/apfs-reader",
+
+	# Formats
 	"crates/formats/apfs-format",
+
+	# Foundation
 	"crates/foundation/apfs-core",
+
+	# Platform
 	"crates/platform/apfs-mounted",
 ]
 
