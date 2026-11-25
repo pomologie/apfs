@@ -7,7 +7,7 @@ use apfs_format::{
 	superblock::BlockAddress,
 };
 
-use crate::Diagnostic;
+use crate::{Diagnostic, VolumeSelectionError};
 
 /// A budget exhausted during checkpoint selection or object lookup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,6 +165,8 @@ pub enum Error<E> {
 		/// Specific failed check.
 		reason: VolumeError,
 	},
+	/// Checked discovery found no unambiguous volume for the requested selector.
+	VolumeSelection(VolumeSelectionError),
 }
 
 impl<E: fmt::Display> fmt::Display for Error<E> {
@@ -214,6 +216,7 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 					address.0
 				)
 			}
+			Self::VolumeSelection(error) => error.fmt(f),
 			Self::Volume { id, reason } => {
 				write!(
 					f,
@@ -230,6 +233,7 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
 		match self {
 			Self::Bootstrap(error) => Some(error),
 			Self::Read { source, .. } => Some(source),
+			Self::VolumeSelection(error) => Some(error),
 			Self::ObjectMap {
 				reason: ObjectMapError::Format(error),
 				..

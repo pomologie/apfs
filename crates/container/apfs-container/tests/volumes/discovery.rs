@@ -1,6 +1,9 @@
 //! Volume metadata and explicit selection cases for A-CONT-04-T01.
 
-use apfs_container::{Container, Error, Limit, LookupOptions, OpenOptions, VolumeError};
+use apfs_container::{
+	Container, Error, Limit, LookupOptions, OpenOptions, VolumeError, VolumeSelectionError,
+	VolumeSelector,
+};
 use apfs_format::{
 	object::ObjectId,
 	superblock::BlockAddress,
@@ -93,6 +96,22 @@ fn discovers_native_volume_and_matches_independent_fsck_identity() {
 	assert_eq!(metadata.trees.snapshot_metadata, NATIVE_SNAPSHOT_META);
 	assert_eq!(view.volume(VOLUME_ID, opts).unwrap().as_ref(), Some(volume));
 	assert!(view.volume(OTHER_ID, opts).unwrap().is_none());
+	assert_eq!(view.select_volume_id(None, opts).unwrap(), VOLUME_ID);
+	assert_eq!(
+		view.select_volume_id(Some(VolumeSelector::Uuid(UUID)), opts)
+			.unwrap(),
+		VOLUME_ID
+	);
+	assert!(matches!(
+		view.select_volume_id(Some(VolumeSelector::ObjectId(OTHER_ID)), opts),
+		Err(Error::VolumeSelection(VolumeSelectionError::UnknownVolume(VolumeSelector::ObjectId(id))))
+			if id == OTHER_ID
+	));
+	assert!(matches!(
+		view.select_volume_id(Some(VolumeSelector::Uuid(OTHER_UUID)), opts),
+		Err(Error::VolumeSelection(VolumeSelectionError::UnknownVolume(VolumeSelector::Uuid(uuid))))
+			if uuid == OTHER_UUID
+	));
 }
 
 #[test]
@@ -104,6 +123,10 @@ fn discovers_an_empty_checkpoint_and_accepts_visible_older_cow_objects() {
 	assert_eq!(view.superblock().object.transaction, EARLY_XID);
 	assert!(view.volumes(opts).unwrap().is_empty());
 	assert!(view.volume(VOLUME_ID, opts).unwrap().is_none());
+	assert!(matches!(
+		view.select_volume_id(None, opts),
+		Err(Error::VolumeSelection(VolumeSelectionError::NoVolumes))
+	));
 
 	let mut fixture = Fixture::native();
 	fixture.set_u64(LATEST_OMAP_ROOT, FIRST_KEY + size_of::<u64>(), EARLY_XID.0);
@@ -127,6 +150,17 @@ fn enumerates_sparse_slots_without_guessing_a_volume_and_shares_one_budget() {
 	assert_eq!(other.superblock.index, OTHER_SLOT);
 	assert_eq!(other.superblock.name.as_str(), OTHER_NAME);
 	assert_eq!(other.superblock.role, VolumeRole::Data);
+	assert!(matches!(
+		view.select_volume_id(None, opts),
+		Err(Error::VolumeSelection(
+			VolumeSelectionError::AmbiguousVolumes(2)
+		))
+	));
+	assert_eq!(
+		view.select_volume_id(Some(VolumeSelector::Uuid(OTHER_UUID)), opts)
+			.unwrap(),
+		OTHER_ID
+	);
 	assert_eq!(view.volume(OTHER_ID, opts).unwrap().as_ref(), Some(other));
 	assert!(matches!(
 		view.volumes(LookupOptions {
@@ -157,6 +191,16 @@ fn enumerates_sparse_slots_without_guessing_a_volume_and_shares_one_budget() {
 	fixture.set_u64(VOLUME_SUPERBLOCK, INCOMPATIBLE_FEATURES, SEALED_FEATURE);
 	let view = open(fixture);
 	assert!(view.volumes(opts).is_err());
+	assert!(view.select_volume_id(None, opts).is_err());
+	assert!(
+		view.select_volume_id(Some(VolumeSelector::Uuid(OTHER_UUID)), opts)
+			.is_err()
+	);
+	assert_eq!(
+		view.select_volume_id(Some(VolumeSelector::ObjectId(OTHER_ID)), opts)
+			.unwrap(),
+		OTHER_ID
+	);
 	assert_eq!(
 		view.volume(OTHER_ID, opts).unwrap().unwrap().mapping.id,
 		OTHER_ID

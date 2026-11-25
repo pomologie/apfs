@@ -7,6 +7,7 @@ mod container;
 mod error;
 mod object_map;
 mod probe;
+mod selection;
 mod volume;
 
 pub(crate) use allocation::alloc;
@@ -15,4 +16,5 @@ pub use container::Container;
 pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported, VolumeError};
 pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType, VolumeObjects};
 pub use probe::probe_extent;
+pub use selection::{VolumeSelectionError, VolumeSelector};
 pub use volume::Volume;
