@@ -11,6 +11,7 @@ pub mod metadata;
 mod scope;
 pub mod source;
 pub mod volume;
+pub mod writer;
 
 pub use identity::{BirthTime, IdentityError, MountIdentity, ObjectIdentity};
 pub use scope::{
