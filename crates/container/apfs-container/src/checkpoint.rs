@@ -70,6 +70,7 @@ pub(super) struct Selected {
 pub(super) fn select<S: ReadAt>(
 	source: &S,
 	options: OpenOptions,
+	transaction: Option<TransactionId>,
 ) -> Result<Selected, Error<S::Error>> {
 	let mut discovery = Discovery {
 		probe: Probe::new(source, options.max_object_bytes, options.max_read_bytes),
@@ -84,7 +85,7 @@ pub(super) fn select<S: ReadAt>(
 	let Scan {
 		mut candidates,
 		mut diagnostics,
-	} = discovery.scan(&bootstrap, &ring, &mut scratch)?;
+	} = discovery.scan(&bootstrap, &ring, transaction, &mut scratch)?;
 	candidates.sort_unstable_by_key(|candidate| Reverse(candidate.xid));
 	for (index, candidate) in candidates.iter().enumerate() {
 		if candidates
@@ -97,13 +98,13 @@ pub(super) fn select<S: ReadAt>(
 		let result = discovery.read_candidate(&bootstrap, &ring, *candidate, &mut scratch);
 		let (selected, mappings) = match result {
 			Ok(complete) => complete,
-			Err(Error::CandidateCorruption(damage)) => {
+			Err(Error::CandidateCorruption(damage)) if transaction.is_none() => {
 				push(&mut diagnostics, Diagnostic::Rejected(damage))?;
 				continue;
 			}
 			Err(error) => return Err(error),
 		};
-		if bootstrap.object.transaction > selected.object.transaction {
+		if transaction.is_none() && bootstrap.object.transaction > selected.object.transaction {
 			push(
 				&mut diagnostics,
 				Diagnostic::NewerBootstrap {
@@ -119,7 +120,13 @@ pub(super) fn select<S: ReadAt>(
 			diagnostics,
 		});
 	}
-	Err(Error::NoCheckpoint { diagnostics })
+	Err(match transaction {
+		Some(transaction) => Error::CheckpointNotFound {
+			transaction,
+			diagnostics,
+		},
+		None => Error::NoCheckpoint { diagnostics },
+	})
 }
 
 #[derive(Clone, Copy)]
@@ -177,6 +184,7 @@ impl<S: ReadAt> Discovery<'_, S> {
 		&mut self,
 		bootstrap: &Superblock,
 		rings: &validate::Rings,
+		transaction: Option<TransactionId>,
 		scratch: &mut Vec<u8>,
 	) -> Result<Scan, Error<S::Error>> {
 		let mut candidates = Vec::new();
@@ -189,13 +197,18 @@ impl<S: ReadAt> Discovery<'_, S> {
 				continue;
 			}
 			match Header::decode(scratch) {
-				Ok(header) => push(
-					&mut candidates,
-					Candidate {
-						address,
-						xid: header.transaction,
-					},
-				)?,
+				Ok(header)
+					if transaction.is_none_or(|requested| header.transaction == requested) =>
+				{
+					push(
+						&mut candidates,
+						Candidate {
+							address,
+							xid: header.transaction,
+						},
+					)?
+				}
+				Ok(_) => {}
 				Err(error) => push(
 					&mut diagnostics,
 					Diagnostic::Rejected(Damage {

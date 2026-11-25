@@ -1,7 +1,7 @@
 use apfs_core::ReadAt;
 use apfs_format::{
 	checkpoint::Mapping,
-	object::ObjectId,
+	object::{ObjectId, TransactionId},
 	superblock::{BlockAddress, Superblock},
 };
 
@@ -31,12 +31,39 @@ impl<S: ReadAt> Container<S> {
 	/// Rejects invalid bootstrap geometry, unsupported newest candidates, split
 	/// identities, read failures, exhausted budgets and missing complete checkpoints.
 	pub fn open(source: S, options: OpenOptions) -> Result<Self, Error<S::Error>> {
+		Self::open_selection(source, options, None)
+	}
+
+	/// Opens the complete checkpoint with the specified transaction ID.
+	///
+	/// The descriptor must still be present in the ring and its referenced
+	/// checkpoint data must still validate. The resulting view stays bound to
+	/// this transaction.
+	///
+	/// # Errors
+	/// Returns `Error::CheckpointNotFound` when no checksummed descriptor
+	/// identifies this transaction. A verified matching descriptor can still
+	/// fail validation, be unsupported, or have an ambiguous identity. The
+	/// same bootstrap, read and resource limits apply as with `Self::open`.
+	pub fn open_at(
+		source: S,
+		options: OpenOptions,
+		transaction: TransactionId,
+	) -> Result<Self, Error<S::Error>> {
+		Self::open_selection(source, options, Some(transaction))
+	}
+
+	fn open_selection(
+		source: S,
+		options: OpenOptions,
+		transaction: Option<TransactionId>,
+	) -> Result<Self, Error<S::Error>> {
 		let Selected {
 			selected,
 			descriptor,
 			mappings,
 			diagnostics,
-		} = select(&source, options)?;
+		} = select(&source, options, transaction)?;
 		Ok(Self {
 			source,
 			selected,

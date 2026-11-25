@@ -7,6 +7,8 @@ use apfs_format::{
 	superblock::BlockAddress,
 };
 
+#[path = "checkpoint_selection/exact.rs"]
+mod exact;
 #[path = "object_map/lookup.rs"]
 mod object_map;
 #[path = "volume_objects/resolution.rs"]

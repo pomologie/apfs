@@ -144,6 +144,13 @@ pub enum Error<E> {
 	CandidateCorruption(Damage),
 	/// The ring contained no complete candidate in the supported profile.
 	NoCheckpoint { diagnostics: Vec<Diagnostic> },
+	/// No checksum-verified descriptor identified the requested checkpoint.
+	CheckpointNotFound {
+		/// Transaction sought in the descriptor ring.
+		transaction: TransactionId,
+		/// Damaged descriptors observed during discovery, if any.
+		diagnostics: Vec<Diagnostic>,
+	},
 	/// Object-map or mapped-object admission failed at the given block.
 	ObjectMap {
 		/// Physical block associated with the failed lookup.
@@ -197,6 +204,9 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 				damage.descriptor.0, damage.reason
 			),
 			Self::NoCheckpoint { .. } => f.write_str("no complete APFS checkpoint was found"),
+			Self::CheckpointNotFound { transaction, .. } => {
+				write!(f, "APFS checkpoint XID {} not found", transaction.0)
+			}
 			Self::ObjectMap { address, reason } => {
 				write!(
 					f,
