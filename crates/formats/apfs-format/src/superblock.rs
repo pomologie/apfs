@@ -276,15 +276,17 @@ impl Superblock {
 		{
 			return Err(Error::UnexpectedObjectType(object.object_type));
 		}
+		let incompatible = u64_at(bytes, INCOMPATIBLE_FEATURES_OFFSET)?;
+		let has_keylocker = u64_at(bytes, KEYLOCKER_BLOCK_COUNT_OFFSET)? != 0;
+		let descriptor_count = u32_at(bytes, DESCRIPTOR_AREA_OFFSETS.block_count)?;
+		let fragmented_checkpoint_area = descriptor_count & FRAGMENTED_AREA_FLAG != 0
+			|| u32_at(bytes, DATA_AREA_OFFSETS.block_count)? & FRAGMENTED_AREA_FLAG != 0;
 		Ok((
 			object,
 			Profile {
-				incompatible: u64_at(bytes, INCOMPATIBLE_FEATURES_OFFSET)?,
-				has_keylocker: u64_at(bytes, KEYLOCKER_BLOCK_COUNT_OFFSET)? != 0,
-				fragmented_checkpoint_area: u32_at(bytes, DESCRIPTOR_AREA_OFFSETS.block_count)?
-					& FRAGMENTED_AREA_FLAG
-					!= 0
-					|| u32_at(bytes, DATA_AREA_OFFSETS.block_count)? & FRAGMENTED_AREA_FLAG != 0,
+				incompatible,
+				has_keylocker,
+				fragmented_checkpoint_area,
 			},
 		))
 	}
