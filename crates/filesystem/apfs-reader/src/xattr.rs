@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use alloc::{string::String, vec::Vec};
 use core::{cmp::Ordering, num::NonZeroU16, ops::Range};
 
@@ -5,10 +7,10 @@ use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::object::ObjectId;
 
 use crate::{
-	Corruption, Error, FileData, InodeId, Limit, StreamSizes, Unsupported, ViewIdentity,
-	VolumeView,
+	Corruption, Error, FileData, InodeId, Limit, StreamSizes, Unsupported, VolumeView,
 	payload::{StreamKind, checked_read_end},
 	record::{Prefix, stream_sizes},
+	volume::ViewIdentity,
 	walk,
 	wire::{U16_BYTES, U64_BYTES, u16_at, u64_at},
 };

@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use alloc::vec::Vec;
 
 use apfs_container::{VirtualType, VolumeObjects};
@@ -5,12 +7,13 @@ use apfs_core::ReadAt;
 use apfs_format::{object::ObjectId, superblock::Geometry};
 
 use crate::{
-	Corruption, Error, Limit, MAX_TREE_DEPTH, TreeLimits,
+	Corruption, Error, Limit, TreeLimits,
 	node::{
 		BTREE_NODE_KIND, BTREE_ROOT_KIND, FILESYSTEM_SUBTYPE, Node, Slot, TreeInfo, TreeKind,
 		child_id,
 	},
 	record::Prefix,
+	volume::MAX_TREE_DEPTH,
 };
 
 const ROOT_DEPTH: u16 = 1;

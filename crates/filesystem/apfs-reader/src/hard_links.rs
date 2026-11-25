@@ -1,5 +1,7 @@
 //! Checked reverse names for ordinary regular-file hard links.
 
+extern crate alloc;
+
 use alloc::{string::String, vec::Vec};
 
 use apfs_core::ReadAt;

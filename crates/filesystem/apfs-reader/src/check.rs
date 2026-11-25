@@ -1,5 +1,7 @@
 //! Read-only consistency checks for the reachable namespace of one selected volume.
 
+extern crate alloc;
+
 use alloc::vec::Vec;
 use core::{num::NonZeroU16, ops::Range};
 
@@ -10,7 +12,7 @@ use crate::{
 	Corruption, Error, FileKind, Inode, InodeCount, InodeId, Limit, Unsupported, VolumeView,
 	XattrStorage,
 	record::{INODE_HAS_RESOURCE_FORK, INODE_NO_RESOURCE_FORK},
-	verify_directory_target,
+	volume::verify_directory_target,
 	xattr::RESOURCE_FORK_ATTRIBUTE,
 };
 

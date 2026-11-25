@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -9,8 +11,9 @@ use apfs_format::{
 };
 
 use crate::{
-	Corruption, Error, Limit, MAX_TREE_DEPTH, TreeLimits, Unsupported,
+	Corruption, Error, Limit, TreeLimits, Unsupported,
 	node::{Node, Slot, TreeInfo, TreeKind, child_id},
+	volume::MAX_TREE_DEPTH,
 	wire::{U64_BYTES, u32_at, u64_at},
 };
 
