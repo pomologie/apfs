@@ -272,6 +272,29 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		Ok(DirectoryPage { entries, next })
 	}
 
+	/// Pages directory entries and verifies each returned target and hard link.
+	///
+	/// This uses the same cursor and ordering as [`Self::read_dir`]. Each
+	/// returned entry gets an exact-name admission under the view's read budget.
+	///
+	/// # Errors
+	/// In addition to paging failures, returns errors for duplicate, missing,
+	/// or inconsistent records and for failed target or sibling validation.
+	pub fn read_checked_dir(
+		&mut self,
+		directory: InodeId,
+		cursor: Option<DirectoryCursor>,
+		limit: NonZeroU16,
+	) -> Result<DirectoryPage, Error<S::Error>> {
+		let page = self.read_dir(directory, cursor, limit)?;
+		for entry in &page.entries {
+			if self.lookup_stored_name(directory, &entry.name)?.as_ref() != Some(entry) {
+				return Err(Corruption::DirectoryTarget.into());
+			}
+		}
+		Ok(page)
+	}
+
 	pub(super) fn identity(&self) -> ViewIdentity {
 		let volume = self.objects.volume();
 		ViewIdentity {

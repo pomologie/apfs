@@ -10,6 +10,8 @@ Map file logical byte range to validated file extent records, data stream identi
 
 `VolumeView::list_xattr_names` provides a complete, count-bounded inventory of the stored xattr names. It validates all matching records in one scan and leaves external payloads unopened. An existing inode with no attributes returns an empty inventory. A missing inode returns absence, and exceeding the count is a typed failure. [Attribute reader tests](../../crates/filesystem/apfs-reader/tests/view/extended_attributes.rs)
 
+`VolumeView::directory_ancestry_has_xattr` checks one exact attribute name on a directory and its parents within a caller-supplied limit. The result distinguishes a complete chain with no match from incomplete ancestry. [Directory ancestry tests](../../crates/filesystem/apfs-reader/tests/view.rs)
+
 ### Implemented FinderInfo lookup
 
 `VolumeView::finder_info` accepts the 32-byte inode extended field specified by Apple and the inline `com.apple.FinderInfo` record observed with macOS 14.7.2. The lookup checks the inode presence flag against both storage locations, rejects conflicting forms, and distinguishes a missing inode from an existing inode with no FinderInfo. It uses the normal metadata traversal and aggregate read budgets. This covers the FinderInfo portion of A-READ-02-T01 for the native inline record. The inode-field profile has a constructed regression fixture. [Native inline fixture](../../crates/filesystem/apfs-reader/tests/fixtures/sonoma-xattr-blocks.json) [FinderInfo reader tests](../../crates/filesystem/apfs-reader/tests/view/extended_attributes/finder_info.rs)
@@ -23,6 +25,8 @@ On macOS 14.7.2 (23H311), arm64, Apple's read-only checker passed the disposable
 ### Implemented regular-file hard links
 
 `VolumeView::hard_links` checks the recorded sibling group against the inode’s link count and primary parent. Each sibling record must match its inverse map and its parent’s exact directory entry. Sibling IDs are exposed separately from the shared inode number. Normal stored-name lookup verifies the chosen entry’s sibling and map before exposing its target. The group must fit the configured entry limit and all scans share the volume’s aggregate read budget. [Apple File System Reference, Siblings](https://developer.apple.com/support/downloads/Apple-File-System-Reference.pdf#page=115)
+
+`VolumeView::read_checked_dir` verifies each returned page entry with the same target and sibling checks as exact-name lookup. `VolumeView::stat_entry` binds inode facts to the selected parent and reports the shared link count after checking sibling membership. [Entry admission tests](../../crates/filesystem/apfs-reader/tests/view/hard_links.rs)
 
 The A-READ-01 fixture contains three names for one ordinary inode and a separate resource stream. Apple’s checker passed at XID 4. On the read-only native mount, all three names reported inode 17 and link count 3, and both forks matched the synthetic input bytes. Reader tests reproduce the native identities and payloads, and reject changed link counts, mismatched names, and an inverse map pointing to another inode. Clones and non-regular hard links remain separate profiles. [Fixture ledger](../../crates/filesystem/apfs-reader/tests/fixtures/sonoma-hard-link-blocks.json)
 

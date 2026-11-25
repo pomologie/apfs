@@ -412,6 +412,43 @@ fn enforces_per_tree_scan_and_page_limits() {
 	));
 }
 
+#[test]
+fn distinguishes_a_complete_directory_ancestry_from_missing_or_limited_ancestry() {
+	let container = container(Fixture::native_populated());
+	let mut view = VolumeView::open(
+		&container,
+		VOLUME_ID,
+		LookupOptions::default(),
+		TreeLimits::default(),
+	)
+	.unwrap()
+	.unwrap();
+	let docs = view
+		.lookup_stored_name(InodeId::ROOT, "Docs")
+		.unwrap()
+		.unwrap();
+	let file = view
+		.lookup_stored_name(docs.inode, "note.txt")
+		.unwrap()
+		.unwrap();
+	let name = "com.pomologie.absent";
+	assert_eq!(
+		view.directory_ancestry_has_xattr(docs.inode, name, FIRST_PAGE)
+			.unwrap(),
+		Some(false)
+	);
+	assert_eq!(
+		view.directory_ancestry_has_xattr(docs.inode, name, NonZeroU16::MIN)
+			.unwrap(),
+		None
+	);
+	assert_eq!(
+		view.directory_ancestry_has_xattr(file.inode, name, FIRST_PAGE)
+			.unwrap(),
+		None
+	);
+}
+
 #[path = "view/reachable_check.rs"]
 mod check;
 #[path = "view/hard_links.rs"]

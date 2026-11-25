@@ -3,6 +3,7 @@
 extern crate alloc;
 
 use alloc::{string::String, vec::Vec};
+use core::num::NonZeroU32;
 
 use apfs_core::ReadAt;
 use apfs_format::object::ObjectId;
@@ -12,6 +13,7 @@ use crate::{
 	VolumeView,
 	node::Slot,
 	record::{Prefix, decode_name},
+	volume::verify_directory_target,
 	walk,
 	wire::{U16_BYTES, U64_BYTES, u16_at, u64_at},
 };
@@ -43,7 +45,65 @@ pub struct HardLink {
 	pub name: String,
 }
 
+/// Inode facts for an admitted directory entry or the volume root.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct EntryMetadata {
+	pub inode: Inode,
+	/// Shared inode link count after checking the selected sibling and its group.
+	pub hard_link_count: Option<NonZeroU32>,
+}
+
 impl<S: ReadAt> VolumeView<'_, S> {
+	/// Reads inode metadata using the parent and sibling of an admitted entry.
+	///
+	/// Provide the parent and optional sibling returned by a checked directory
+	/// lookup. The root takes neither. A multiply linked regular inode requires
+	/// a selected sibling and parent in its checked group. A missing inode
+	/// returns `None`.
+	///
+	/// # Errors
+	/// Returns errors for invalid link identities, corrupt or unsupported
+	/// metadata, and exhausted query or read budgets.
+	pub fn stat_entry(
+		&mut self,
+		id: InodeId,
+		parent: Option<InodeId>,
+		sibling: Option<ObjectId>,
+	) -> Result<Option<EntryMetadata>, Error<S::Error>> {
+		let Some(inode) = self.stat(id)? else {
+			return Ok(None);
+		};
+		match parent {
+			Some(parent) if id != InodeId::ROOT => {
+				verify_directory_target(parent, inode.kind, inode)?;
+			}
+			None if id == InodeId::ROOT && sibling.is_none() => {}
+			_ => return Err(Corruption::DirectoryTarget.into()),
+		}
+		let hard_link_count =
+			if sibling.is_some() || regular_link_count(inode).is_some_and(|count| count > 1) {
+				let count = regular_link_count(inode)
+					.and_then(NonZeroU32::new)
+					.ok_or(Corruption::HardLinkCount)?;
+				let sibling = sibling.ok_or(Corruption::HardLinkDirectory)?;
+				let group = self.hard_links(id)?.ok_or(Corruption::HardLinkDirectory)?;
+				if !group
+					.iter()
+					.any(|link| link.sibling.as_raw() == sibling.0 && Some(link.parent) == parent)
+				{
+					return Err(Corruption::HardLinkDirectory.into());
+				}
+				Some(count)
+			} else {
+				None
+			};
+		Ok(Some(EntryMetadata {
+			inode,
+			hard_link_count,
+		}))
+	}
+
 	/// Lists the checked hard-link names of a regular inode in sibling ID order.
 	/// The first recorded sibling is the primary link. A missing inode returns
 	/// `None`. A single ordinary name without sibling records returns an empty

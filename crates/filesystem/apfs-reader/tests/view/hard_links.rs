@@ -60,6 +60,17 @@ fn lists_native_siblings_and_reads_both_exact_shared_forks() {
 		let entry = view.lookup_stored_name(parent, name).unwrap().unwrap();
 		assert_eq!(entry.inode, INODE);
 		assert_eq!(entry.sibling, Some(ObjectId(sibling)));
+		let page = view.read_checked_dir(parent, None, WIDE_PAGE).unwrap();
+		assert!(page.entries.contains(&entry));
+		let selected = view
+			.stat_entry(entry.inode, Some(parent), entry.sibling)
+			.unwrap()
+			.unwrap();
+		assert_eq!(selected.inode, inode);
+		assert_eq!(
+			selected.hard_link_count.unwrap().get(),
+			NATIVE_LINKS.len() as u32
+		);
 		let mut file = view.open_file(entry.inode).unwrap().unwrap();
 		assert_eq!(file.len(), data.len() as u64);
 		let mut observed = vec![0; data.len()];
@@ -82,6 +93,19 @@ fn distinguishes_missing_inodes_untracked_regular_files_and_page_limits() {
 	let mut view = open(&source, TreeLimits::default());
 	assert!(view.hard_links(MISSING).unwrap().is_none());
 	assert!(matches!(view.hard_links(DOCS), Err(Error::NotRegularFile)));
+	assert!(
+		view.stat_entry(MISSING, Some(DOCS), None)
+			.unwrap()
+			.is_none()
+	);
+	assert!(matches!(
+		view.stat_entry(INODE, Some(DOCS), None),
+		Err(Error::Corrupt(Corruption::HardLinkDirectory))
+	));
+	assert!(matches!(
+		view.stat_entry(INODE, Some(MORE), Some(ObjectId(NATIVE_LINKS[0].0))),
+		Err(Error::Corrupt(Corruption::HardLinkDirectory))
+	));
 
 	let source = container(Fixture::native_populated());
 	let mut view = open(&source, TreeLimits::default());
@@ -147,6 +171,10 @@ fn rejects_inconsistent_directory_links_counts_and_inverse_maps() {
 		assert!(matches!(view.hard_links(INODE), Err(Error::Corrupt(actual)) if actual == reason));
 		assert!(
 			matches!(view.lookup_stored_name(DOCS, NATIVE_LINKS[0].2), Err(Error::Corrupt(actual)) if actual == reason)
+		);
+		assert!(view.read_dir(DOCS, None, FIRST_PAGE).is_ok());
+		assert!(
+			matches!(view.read_checked_dir(DOCS, None, FIRST_PAGE), Err(Error::Corrupt(actual)) if actual == reason)
 		);
 	}
 }

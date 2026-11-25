@@ -2,6 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+mod ancestry;
 mod check;
 mod error;
 mod extent_refs;
@@ -17,7 +18,7 @@ mod xattr;
 
 pub use check::{CheckData, CheckOptions, CheckReport};
 pub use error::{Corruption, Error, Limit, Unsupported};
-pub use hard_links::{HardLink, SiblingId};
+pub use hard_links::{EntryMetadata, HardLink, SiblingId};
 pub use names::{NameError, NameProfile};
 pub use payload::FileData;
 pub use record::{DirectoryEntry, FileKind, Inode, InodeCount, InodeId, StreamSizes, Times};
