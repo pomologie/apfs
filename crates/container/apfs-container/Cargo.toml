@@ -8,8 +8,11 @@ repository.workspace = true
 description = "Bounded read-only APFS container checkpoint discovery"
 
 [dependencies]
-apfs-core.workspace = true
+# Workspace formats
 apfs-format.workspace = true
+
+# Workspace foundation
+apfs-core.workspace = true
 
 [lints]
 workspace = true

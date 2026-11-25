@@ -8,10 +8,12 @@ repository.workspace = true
 description = "Descriptor-scoped operations for APFS mounted on macOS"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Darwin filesystem APIs
 libc.workspace = true
 rustix.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
+# Filesystem access and staging
 tempfile = "=3.27.0"
 
 # Hosted Darwin bindings allow only documented function-level exceptions.

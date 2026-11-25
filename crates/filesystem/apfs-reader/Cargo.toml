@@ -8,9 +8,14 @@ repository.workspace = true
 description = "Portable read-only APFS filesystem metadata traversal"
 
 [dependencies]
+# Workspace container
 apfs-container.workspace = true
-apfs-core.workspace = true
+
+# Workspace formats
 apfs-format.workspace = true
+
+# Workspace foundation
+apfs-core.workspace = true
 
 [lints]
 workspace = true
