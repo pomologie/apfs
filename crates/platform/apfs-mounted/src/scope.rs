@@ -19,6 +19,7 @@ pub const MAX_ENTRY_NAME_BYTES: usize = 255;
 const NO_FOLLOW: OFlags = OFlags::NOFOLLOW
 	.union(OFlags::CLOEXEC)
 	.union(OFlags::NONBLOCK);
+const EVENT_ONLY: OFlags = OFlags::from_bits_retain(libc::O_EVTONLY as u32);
 const PRIVATE_DIRECTORY: Mode = Mode::RUSR.union(Mode::WUSR).union(Mode::XUSR);
 
 /// One owned component, preserving the supplied bytes.
@@ -137,7 +138,12 @@ impl Directory {
 	/// # Errors
 	/// Fails on lookup, permission, or symlink errors.
 	pub fn open_event(&self, name: &EntryName) -> io::Result<EventHandle> {
-		darwin::open_event(self, name).map(EventHandle)
+		Ok(EventHandle(openat(
+			self,
+			name.as_c_str(),
+			EVENT_ONLY | NO_FOLLOW,
+			Mode::empty(),
+		)?))
 	}
 
 	/// Creates an exclusive private directory and reopens it relative to this handle.

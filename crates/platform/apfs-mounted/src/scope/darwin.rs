@@ -1,10 +1,10 @@
 use std::{
 	ffi::CStr,
 	io,
-	os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
+	os::fd::{AsFd, AsRawFd},
 };
 
-use super::{Directory, EntryName, MAX_ENTRY_NAME_BYTES};
+use super::{EntryName, MAX_ENTRY_NAME_BYTES};
 
 const NAME_REQUEST: libc::attrgroup_t = libc::ATTR_CMN_RETURNED_ATTRS | libc::ATTR_CMN_NAME;
 const WORD: usize = size_of::<u32>();
@@ -14,28 +14,6 @@ const BUFFER_BYTES: usize = (PAYLOAD + MAX_ENTRY_NAME_BYTES + 1).next_multiple_o
 
 #[repr(C, align(4))]
 struct NameBuffer([u8; BUFFER_BYTES]);
-
-#[allow(
-	unsafe_code,
-	reason = "Darwin event-only open needs the O_EVTONLY flag"
-)]
-pub(super) fn open_event(directory: &Directory, name: &EntryName) -> io::Result<OwnedFd> {
-	let flags = libc::O_EVTONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK;
-	// SAFETY: The borrowed directory stays open. EntryName owns a NUL-terminated
-	// component. No O_CREAT flag is passed, so openat needs no mode argument.
-	let fd = unsafe {
-		libc::openat(
-			directory.as_fd().as_raw_fd(),
-			name.as_c_str().as_ptr(),
-			flags,
-		)
-	};
-	if fd < 0 {
-		return Err(io::Error::last_os_error());
-	}
-	// SAFETY: A successful openat returns a new descriptor owned by this call.
-	Ok(unsafe { OwnedFd::from_raw_fd(fd) })
-}
 
 /// Reads the kernel's stored name from a held object, including event-only fds.
 /// This is a live observation. Check the binding relative to an authorized

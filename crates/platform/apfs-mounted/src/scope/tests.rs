@@ -1,5 +1,10 @@
 use std::{fs, io::Read, os::unix::fs::symlink};
 
+use rustix::{
+	fs::fcntl_getfl,
+	io::{FdFlags, fcntl_getfd},
+};
+
 use super::*;
 
 #[test]
@@ -25,6 +30,12 @@ fn keeps_operations_relative_after_the_original_parent_is_renamed() {
 	fs::write(original.join("Document"), b"different root").unwrap();
 	let name = EntryName::new(b"Document").unwrap();
 	let event = held.open_event(&name).unwrap();
+	assert!(
+		fcntl_getfl(&event)
+			.unwrap()
+			.contains(EVENT_ONLY | OFlags::NONBLOCK)
+	);
+	assert!(fcntl_getfd(&event).unwrap().contains(FdFlags::CLOEXEC));
 	assert_eq!(stored_name(&event).unwrap(), name);
 	assert_eq!(fstat(&event).unwrap().st_size, b"held source".len() as i64);
 	let mut contents = Vec::new();
