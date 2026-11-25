@@ -6,6 +6,7 @@
 
 pub mod dataless;
 pub mod identity;
+pub mod lease;
 mod scope;
 pub mod source;
 pub mod volume;
