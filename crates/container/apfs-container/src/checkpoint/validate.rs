@@ -1,5 +1,3 @@
-use alloc::vec::Vec;
-
 use apfs_core::ReadAt;
 use apfs_format::{
 	checkpoint::{Map, Mapping},
@@ -8,7 +6,8 @@ use apfs_format::{
 	superblock::{Area, AreaLocation, BlockAddress, Superblock},
 };
 
-use crate::{Candidate, Corruption, Error, Limit, Probe, Unsupported, check_profile};
+use super::{Candidate, Discovery, check_profile};
+use crate::{Corruption, Error, Limit, Unsupported, alloc::vec::Vec};
 
 const FIRST_CHECKPOINT_XID: TransactionId = TransactionId(1);
 const MIN_DESCRIPTOR_LENGTH: u32 = 2; // At least one map and the final NXSB.
@@ -39,7 +38,7 @@ impl Rings {
 	}
 }
 
-impl<S: ReadAt> Probe<'_, S> {
+impl<S: ReadAt> Discovery<'_, S> {
 	pub(super) fn read_candidate(
 		&mut self,
 		bootstrap: &Superblock,
@@ -48,7 +47,8 @@ impl<S: ReadAt> Probe<'_, S> {
 		scratch: &mut Vec<u8>,
 	) -> Result<(Superblock, Vec<Mapping>), Error<S::Error>> {
 		let reject = |reason| candidate.reject(reason);
-		self.read_blocks(bootstrap.geometry, candidate.address, 1, scratch)?;
+		self.probe
+			.read_blocks(bootstrap.geometry, candidate.address, 1, scratch)?;
 		let (header, profile) =
 			Superblock::verified_profile(scratch).map_err(|error| match error {
 				apfs_format::Error::UnexpectedObjectType(kind)
@@ -63,7 +63,7 @@ impl<S: ReadAt> Probe<'_, S> {
 			return Err(reject(Corruption::Identity));
 		}
 		check_profile(profile).map_err(|reason| candidate.unsupported(reason))?;
-		let checkpoint = Superblock::decode(scratch, self.source.len())
+		let checkpoint = Superblock::decode(scratch, self.probe.source_len())
 			.map_err(|error| reject(Corruption::Format(error)))?;
 		if !same_layout(bootstrap, &checkpoint) {
 			return Err(reject(Corruption::Identity));
@@ -99,7 +99,8 @@ impl<S: ReadAt> Probe<'_, S> {
 		for ordinal in 0..map_count {
 			let address = descriptor_address(checkpoint.descriptors, rings, ordinal)
 				.map_err(|reason| candidate.reject(reason))?;
-			self.read_blocks(checkpoint.geometry, address, 1, scratch)?;
+			self.probe
+				.read_blocks(checkpoint.geometry, address, 1, scratch)?;
 			let header = Header::decode(scratch)
 				.map_err(|error| candidate.reject(Corruption::Format(error)))?;
 			if header.transaction != candidate.xid || header.id != ObjectId(address.0) {
@@ -125,7 +126,7 @@ impl<S: ReadAt> Probe<'_, S> {
 			if mappings
 				.len()
 				.checked_add(count)
-				.is_none_or(|total| total > self.options.max_mappings)
+				.is_none_or(|total| total > self.max_mappings)
 			{
 				return Err(Error::Limit(Limit::Mappings));
 			}
@@ -152,7 +153,7 @@ impl<S: ReadAt> Probe<'_, S> {
 	) -> Result<(), Error<S::Error>> {
 		let reject = |reason| candidate.reject(reason);
 		for mapping in mappings {
-			self.read_blocks(
+			self.probe.read_blocks(
 				checkpoint.geometry,
 				mapping.physical,
 				mapping_blocks(mapping, checkpoint),
@@ -175,7 +176,8 @@ impl<S: ReadAt> Probe<'_, S> {
 		{
 			return Err(reject(Corruption::Ring));
 		}
-		self.read_blocks(checkpoint.geometry, omap, 1, scratch)?;
+		self.probe
+			.read_blocks(checkpoint.geometry, omap, 1, scratch)?;
 		let header = Header::decode(scratch).map_err(|error| reject(Corruption::Format(error)))?;
 		// A physical copy-on-write object may have been created by an older transaction.
 		if header.id != ObjectId(omap.0)

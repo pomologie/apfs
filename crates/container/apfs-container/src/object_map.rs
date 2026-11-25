@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use core::ops::Range;
 
 use apfs_core::{ByteOffset, ReadAt};
@@ -8,7 +7,12 @@ use apfs_format::{
 	superblock::{Area, AreaLocation, BlockAddress},
 };
 
-use crate::{BLOCK_ZERO, Container, Error, Limit, ObjectMapError, OpenOptions, Probe, push};
+use crate::{
+	Container, Error, Limit, ObjectMapError,
+	alloc::vec::Vec,
+	allocation::push,
+	probe::{BLOCK_ZERO, DEFAULT_MAX_OBJECT_BYTES, DEFAULT_MAX_READ_BYTES, Probe},
+};
 
 #[cfg(kani)]
 #[path = "../verification/kani/object_map.rs"]
@@ -37,8 +41,8 @@ impl Default for LookupOptions {
 	fn default() -> Self {
 		Self {
 			max_nodes: DEFAULT_MAX_NODES,
-			max_object_bytes: crate::DEFAULT_MAX_OBJECT_BYTES,
-			max_read_bytes: crate::DEFAULT_MAX_READ_BYTES,
+			max_object_bytes: DEFAULT_MAX_OBJECT_BYTES,
+			max_read_bytes: DEFAULT_MAX_READ_BYTES,
 		}
 	}
 }
@@ -130,14 +134,11 @@ impl<'source, S: ReadAt> Lookup<'source, S> {
 	pub(super) fn new(container: &'source Container<S>, options: LookupOptions) -> Self {
 		Self {
 			container,
-			probe: Probe {
-				source: container.source(),
-				options: OpenOptions {
-					max_object_bytes: options.max_object_bytes,
-					..OpenOptions::default()
-				},
-				bytes_left: options.max_read_bytes,
-			},
+			probe: Probe::new(
+				container.source(),
+				options.max_object_bytes,
+				options.max_read_bytes,
+			),
 			max_nodes: options.max_nodes,
 			volume_map: None,
 		}
