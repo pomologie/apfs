@@ -416,6 +416,8 @@ fn enforces_per_tree_scan_and_page_limits() {
 mod check;
 #[path = "view/hard_links.rs"]
 mod hard_links;
+#[path = "view/native_names.rs"]
+mod native_names;
 #[path = "view/file_payloads.rs"]
 mod payload;
 #[path = "view/sparse_files.rs"]
