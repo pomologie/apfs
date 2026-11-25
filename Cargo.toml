@@ -5,6 +5,7 @@ members = [
 	"crates/filesystem/apfs-reader",
 	"crates/formats/apfs-format",
 	"crates/foundation/apfs-core",
+	"crates/platform/apfs-mounted",
 ]
 
 [workspace.package]
@@ -17,6 +18,8 @@ repository = "https://github.com/pomologie/apfs"
 apfs-container = { version = "0.1.0", path = "crates/container/apfs-container", default-features = false }
 apfs-core = { version = "0.1.0", path = "crates/foundation/apfs-core", default-features = false }
 apfs-format = { version = "0.1.0", path = "crates/formats/apfs-format", default-features = false }
+libc = "=0.2.191"
+rustix = { version = "=1.1.6", features = ["fs", "process", "try_close"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
