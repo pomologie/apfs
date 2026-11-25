@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use apfs_reader::{Unsupported, XattrStorage};
 
 use super::*;
@@ -24,6 +26,7 @@ const LARGE_BYTES: usize = 9001;
 const CROSS_BLOCK_OFFSET: usize = BLOCK_BYTES - 7;
 const CROSS_BLOCK_BYTES: usize = 19;
 const QUERY_BUDGET_BLOCKS: u64 = 64;
+const NATIVE_ATTRIBUTE_COUNT: NonZeroU32 = NonZeroU32::new(7).unwrap();
 const LARGE_PATTERN_STRIDE: usize = 19;
 const PATTERN_MODULUS: usize = 251;
 const FINDER_INFO_BYTES: usize = 32;
@@ -146,6 +149,42 @@ fn enumerates_native_attributes_in_bounded_pages_and_checks_cursor_scope() {
 }
 
 #[test]
+fn inventories_exact_native_names_with_a_total_limit() {
+	let source = container(fixture());
+	let mut view = VolumeView::open(
+		&source,
+		VOLUME_ID,
+		LookupOptions::default(),
+		TreeLimits {
+			max_entries_per_page: NonZeroU16::MIN.get(),
+			..TreeLimits::default()
+		},
+	)
+	.unwrap()
+	.unwrap();
+	assert_eq!(
+		view.list_xattr_names(INODE, NATIVE_ATTRIBUTE_COUNT)
+			.unwrap()
+			.unwrap(),
+		[FINDER_INFO, FORK, PROVENANCE, BINARY, EMPTY, LARGE, UNICODE],
+	);
+	assert!(matches!(
+		view.list_xattr_names(INODE, NonZeroU32::MIN),
+		Err(Error::Limit(Limit::XattrNames))
+	));
+	assert_eq!(
+		view.list_xattr_names(PRIVATE_INODE, NonZeroU32::MIN)
+			.unwrap(),
+		Some(Vec::new()),
+	);
+	assert_eq!(
+		view.list_xattr_names(MISSING_INODE, NonZeroU32::MIN)
+			.unwrap(),
+		None,
+	);
+}
+
+#[test]
 fn reads_inline_attributes_and_both_native_external_owner_forms() {
 	let source = container(fixture());
 	let mut view = open(&source);
@@ -217,6 +256,11 @@ fn lists_the_fork_without_reading_its_data_and_propagates_source_failures() {
 	let mut view = open(&source);
 	let page = view.list_xattrs(INODE, None, FIRST_PAGE).unwrap().unwrap();
 	assert_eq!(page.entries[1].name, FORK);
+	let names = view
+		.list_xattr_names(INODE, NATIVE_ATTRIBUTE_COUNT)
+		.unwrap()
+		.unwrap();
+	assert_eq!(names[1], FORK);
 	let mut data = view.open_resource_fork(INODE).unwrap().unwrap();
 	assert!(matches!(
 		data.read_exact_at(ByteOffset(0), &mut [0]),
@@ -239,6 +283,12 @@ fn refuses_inconsistent_or_unqualified_xattr_storage_and_crypto() {
 		update_checksum(block);
 		let source = container(fixture);
 		let mut view = open(&source);
+		if name == BINARY {
+			assert!(matches!(
+				view.list_xattr_names(INODE, NonZeroU32::MIN),
+				Err(Error::Corrupt(Corruption::XattrRecord))
+			));
+		}
 		let Err(error) = view.open_xattr(INODE, name) else {
 			panic!("accepted altered {name} storage");
 		};
@@ -303,6 +353,9 @@ fn rejects_duplicate_or_internal_nul_names_beyond_the_first_page() {
 		let mut view = open(&source);
 		assert!(
 			matches!(view.list_xattrs(INODE, None, FIRST_PAGE), Err(Error::Corrupt(actual)) if actual == error)
+		);
+		assert!(
+			matches!(view.list_xattr_names(INODE, NonZeroU32::MIN), Err(Error::Corrupt(actual)) if actual == error)
 		);
 	}
 }

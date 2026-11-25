@@ -78,6 +78,7 @@ pub enum Limit {
 	Nodes,
 	Records,
 	Page,
+	XattrNames,
 	CheckDirectoryDepth,
 	CheckDirectoryEntries,
 	CheckAttributes,

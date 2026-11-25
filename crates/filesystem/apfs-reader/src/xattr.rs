@@ -1,7 +1,11 @@
 extern crate alloc;
 
 use alloc::{string::String, vec::Vec};
-use core::{cmp::Ordering, num::NonZeroU16, ops::Range};
+use core::{
+	cmp::Ordering,
+	num::{NonZeroU16, NonZeroU32},
+	ops::Range,
+};
 
 use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::object::ObjectId;
@@ -161,14 +165,9 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 						(XattrStorage::DataStream(id), sizes.logical_bytes)
 					}
 				};
-				let mut owned = String::new();
-				owned
-					.try_reserve_exact(name.len())
-					.map_err(|_| Error::Allocation)?;
-				owned.push_str(name);
 				entries.try_reserve(1).map_err(|_| Error::Allocation)?;
 				entries.push(Xattr {
-					name: owned,
+					name: copy_name(name)?,
 					storage,
 					length,
 					flags,
@@ -188,6 +187,39 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 				offset: end,
 			}),
 		}))
+	}
+
+	/// Lists the exact stored attribute names in on-disk order within a total
+	/// count limit. A missing inode returns `None`. The inventory validates
+	/// attribute records in one scan and does not open external data streams.
+	///
+	/// # Errors
+	/// Returns `Limit::XattrNames` when the count exceeds `limit`, or a typed
+	/// error for corrupt records, a source failure, or exhausted view limits.
+	pub fn list_xattr_names(
+		&mut self,
+		id: InodeId,
+		limit: NonZeroU32,
+	) -> Result<Option<Vec<String>>, Error<S::Error>> {
+		if self.limits.max_entries_per_page == 0 {
+			return Err(Error::Limit(Limit::Page));
+		}
+		if self.stat(id)?.is_none() {
+			return Ok(None);
+		}
+		let mut names = Vec::new();
+		let count = self.scan_xattrs(id, |index, name, value| {
+			decode_value(value)?;
+			if index < limit.get() {
+				names.try_reserve(1).map_err(|_| Error::Allocation)?;
+				names.push(copy_name(name)?);
+			}
+			Ok(())
+		})?;
+		if count > limit.get() {
+			return Err(Error::Limit(Limit::XattrNames));
+		}
+		Ok(Some(names))
 	}
 
 	/// Opens exact stored bytes for the given UTF-8 attribute name. A missing
@@ -396,6 +428,15 @@ fn copy_bytes<E>(bytes: &[u8]) -> Result<Vec<u8>, Error<E>> {
 		.map_err(|_| Error::Allocation)?;
 	result.extend_from_slice(bytes);
 	Ok(result)
+}
+
+fn copy_name<E>(name: &str) -> Result<String, Error<E>> {
+	let mut owned = String::new();
+	owned
+		.try_reserve_exact(name.len())
+		.map_err(|_| Error::Allocation)?;
+	owned.push_str(name);
+	Ok(owned)
 }
 
 pub(crate) fn symlink_bytes<E>(bytes: &[u8]) -> Result<Vec<u8>, Error<E>> {

@@ -35,7 +35,8 @@ pub struct TreeLimits {
 	pub max_nodes: u16,
 	/// Maximum number of examined key/value slots per scan.
 	pub max_records: u32,
-	/// Maximum number of entries, attributes, or hard links returned by a query.
+	/// Maximum number of entries or attributes per page, or total hard links
+	/// per query. Zero also disables full attribute name inventories.
 	pub max_entries_per_page: u16,
 }
 
