@@ -113,7 +113,7 @@ pub enum VolumeError {
 	InvalidRootId,
 }
 
-/// A source or container prevented reliable checkpoint selection or lookup.
+/// A source or container prevented reliable recognition, checkpoint selection or lookup.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error<E> {

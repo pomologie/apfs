@@ -1,10 +1,10 @@
 use core::cmp::Reverse;
 
-use apfs_core::{ByteOffset, ReadAt};
+use apfs_core::ReadAt;
 use apfs_format::{
 	checkpoint::Mapping,
 	object::{Header, TransactionId},
-	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Profile, Superblock},
+	superblock::{BlockAddress, Profile, Superblock},
 };
 
 use crate::{
@@ -16,7 +16,6 @@ use crate::{
 
 mod validate;
 
-const BOOTSTRAP_OFFSET: ByteOffset = ByteOffset(0);
 const VERSION_TWO: u64 = 1 << 1;
 const DEFAULT_MAX_DESCRIPTOR_BLOCKS: u32 = 4_096;
 const DEFAULT_MAX_MAPPINGS: usize = 65_536;
@@ -165,12 +164,8 @@ struct Discovery<'source, S> {
 
 impl<S: ReadAt> Discovery<'_, S> {
 	fn bootstrap(&mut self) -> Result<Superblock, Error<S::Error>> {
-		let mut prefix = [0; BLOCK_SIZE_PREFIX_BYTES];
-		self.probe.read_exact(BOOTSTRAP_OFFSET, &mut prefix)?;
-		let bytes = Superblock::block_size_hint(&prefix).map_err(Error::Bootstrap)? as usize;
-		let mut scratch = Vec::new();
-		self.probe.buffer(bytes, &mut scratch)?;
-		self.probe.read_exact(BOOTSTRAP_OFFSET, &mut scratch)?;
+		let bytes = self.probe.bootstrap_block_size()?;
+		let scratch = self.probe.read_bootstrap_block(bytes)?;
 		let (header, profile) = Superblock::verified_profile(&scratch).map_err(Error::Bootstrap)?;
 		let bootstrap = Candidate {
 			address: BLOCK_ZERO,

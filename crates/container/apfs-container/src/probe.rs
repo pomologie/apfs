@@ -1,19 +1,60 @@
+use core::num::NonZeroU64;
+
 use apfs_core::{ByteOffset, ReadAt};
-use apfs_format::superblock::{BlockAddress, Geometry};
+use apfs_format::{
+	Error as FormatError,
+	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Geometry, Superblock},
+};
 
 use crate::{Error, Limit, alloc::vec::Vec};
 
 pub(super) const BLOCK_ZERO: BlockAddress = BlockAddress(0);
+const BOOTSTRAP_OFFSET: ByteOffset = ByteOffset(0);
 pub(super) const DEFAULT_MAX_OBJECT_BYTES: usize = 16 << 20;
 pub(super) const DEFAULT_MAX_READ_BYTES: u64 = 128 << 20;
 
-pub(super) struct Probe<'source, S> {
+/// Returns the extent declared by a checksummed block-zero container superblock.
+///
+/// A source shorter than the block-size prefix or missing NXSB magic returns
+/// `Ok(None)`. Recognition reads only the prefix and at most one complete NXSB
+/// block. Checkpoint selection, profile admission and volume access are separate.
+///
+/// # Errors
+/// Returns an error on malformed recognized metadata, failed source reads or
+/// failure to allocate the bounded superblock buffer.
+pub fn probe_extent<S: ReadAt + ?Sized>(source: &S) -> Result<Option<NonZeroU64>, Error<S::Error>> {
+	let mut probe = Probe::new(source, DEFAULT_MAX_OBJECT_BYTES, DEFAULT_MAX_READ_BYTES);
+	let source_len = probe.source_len();
+	if source_len < BLOCK_SIZE_PREFIX_BYTES as u64 {
+		return Ok(None);
+	}
+	let block_bytes = match probe.bootstrap_block_size() {
+		Ok(bytes) => bytes,
+		Err(Error::Bootstrap(FormatError::InvalidMagic)) => return Ok(None),
+		Err(error) => return Err(error),
+	};
+	if u64::from(block_bytes) > source_len {
+		return Err(Error::Bootstrap(FormatError::InvalidGeometry));
+	}
+	let block = probe.read_bootstrap_block(block_bytes)?;
+	let geometry = Superblock::decode(&block, source_len)
+		.map_err(Error::Bootstrap)?
+		.geometry;
+	let range = geometry
+		.byte_range(BLOCK_ZERO, geometry.block_count())
+		.map_err(Error::Bootstrap)?;
+	let extent =
+		NonZeroU64::new(range.end).ok_or(Error::Bootstrap(FormatError::InvalidGeometry))?;
+	Ok(Some(extent))
+}
+
+pub(super) struct Probe<'source, S: ?Sized> {
 	source: &'source S,
 	max_object_bytes: usize,
 	bytes_left: u64,
 }
 
-impl<'source, S: ReadAt> Probe<'source, S> {
+impl<'source, S: ReadAt + ?Sized> Probe<'source, S> {
 	pub(super) fn new(source: &'source S, max_object_bytes: usize, max_read_bytes: u64) -> Self {
 		Self {
 			source,
@@ -24,6 +65,22 @@ impl<'source, S: ReadAt> Probe<'source, S> {
 
 	pub(super) fn source_len(&self) -> u64 {
 		self.source.len()
+	}
+
+	pub(super) fn bootstrap_block_size(&mut self) -> Result<u32, Error<S::Error>> {
+		let mut prefix = [0; BLOCK_SIZE_PREFIX_BYTES];
+		self.read_exact(BOOTSTRAP_OFFSET, &mut prefix)?;
+		Superblock::block_size_hint(&prefix).map_err(Error::Bootstrap)
+	}
+
+	pub(super) fn read_bootstrap_block(
+		&mut self,
+		block_bytes: u32,
+	) -> Result<Vec<u8>, Error<S::Error>> {
+		let mut block = Vec::new();
+		self.buffer(block_bytes as usize, &mut block)?;
+		self.read_exact(BOOTSTRAP_OFFSET, &mut block)?;
+		Ok(block)
 	}
 
 	pub(super) fn read_exact(

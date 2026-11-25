@@ -14,4 +14,5 @@ pub use checkpoint::{Diagnostic, OpenOptions};
 pub use container::Container;
 pub use error::{Corruption, Damage, Error, Limit, ObjectMapError, Unsupported, VolumeError};
 pub use object_map::{LookupOptions, VirtualMapping, VirtualObject, VirtualType, VolumeObjects};
+pub use probe::probe_extent;
 pub use volume::Volume;
