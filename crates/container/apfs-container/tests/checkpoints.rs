@@ -7,8 +7,11 @@ use apfs_format::{
 	superblock::BlockAddress,
 };
 
+#[path = "object_map/lookup.rs"]
 mod object_map;
+#[path = "volume_objects/resolution.rs"]
 mod volume_objects;
+#[path = "volumes/discovery.rs"]
 mod volumes;
 
 const BLOCK_BYTES: usize = 4096;
