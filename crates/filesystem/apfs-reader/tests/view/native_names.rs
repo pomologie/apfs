@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use apfs_reader::{NameError, NameProfile};
+use apfs_reader::{CheckOptions, NameError, NameProfile};
 
 use super::{
 	BLOCK_BYTES, BTREE_DATA_OFFSET, BTREE_TABLE_LENGTH_OFFSET, Corruption, Error, FileKind,
@@ -18,8 +18,7 @@ const STORED_DOCS: &str = "Docs";
 const FOLDED_DOCS: &str = "docs";
 const STORED_NOTE: &str = "note.txt";
 const FOLDED_NOTE: &str = "NoTe.TxT";
-const STORED_ALPHA: &str = "ALPHA.txt";
-const STORED_EMPTY: &str = "Empty";
+const STORED_MORE: &str = "More";
 const STORED_LINK: &str = "link";
 const AFTER_UNICODE_9: &str = "\u{1c90}x";
 const INVALID_COMPONENT: &str = "Docs/note.txt";
@@ -144,10 +143,10 @@ fn resolves_the_stored_spelling_and_sibling_of_a_native_hard_link() {
 
 #[test]
 fn preserves_distinct_keys_with_equal_stored_hashes() {
-	let mut fixture = Fixture::native_populated();
-	let root = fixture.0.get_mut(&POPULATED_FSROOT_BLOCK).unwrap();
+	let mut fixture = hard_links::fixture();
+	let root = fixture.0.get_mut(&hard_links::FSROOT).unwrap();
 	// These records are adjacent in the captured leaf. Hold their order fixed.
-	copy_directory_hash(root, STORED_ALPHA, STORED_EMPTY);
+	copy_directory_hash(root, STORED_DOCS, STORED_MORE);
 	update_checksum(root);
 
 	let source = container(fixture);
@@ -159,26 +158,24 @@ fn preserves_distinct_keys_with_equal_stored_hashes() {
 	)
 	.unwrap()
 	.unwrap();
-	let alpha = view
-		.lookup_native_name(ROOT, STORED_ALPHA)
-		.unwrap()
+	let docs = view.lookup_native_name(ROOT, STORED_DOCS).unwrap().unwrap();
+	let more = view.lookup_native_name(ROOT, STORED_MORE).unwrap().unwrap();
+	assert!(docs.name_hash.is_some());
+	assert_eq!(docs.name_hash, more.name_hash);
+	assert_eq!(docs.name, STORED_DOCS);
+	assert_eq!(more.name, STORED_MORE);
+	assert_ne!(docs.inode, more.inode);
+	let report = view
+		.check_reachable(CheckOptions::default(), || false)
 		.unwrap();
-	let empty = view
-		.lookup_native_name(ROOT, STORED_EMPTY)
-		.unwrap()
-		.unwrap();
-	assert!(alpha.name_hash.is_some());
-	assert_eq!(alpha.name_hash, empty.name_hash);
-	assert_eq!(alpha.name, STORED_ALPHA);
-	assert_eq!(empty.name, STORED_EMPTY);
-	assert_ne!(alpha.inode, empty.inode);
+	assert_eq!(report.directory_entries, 5);
 }
 
 #[test]
 fn refuses_ambiguous_equivalent_stored_names() {
 	let mut fixture = Fixture::native_populated();
 	let root = fixture.0.get_mut(&POPULATED_FSROOT_BLOCK).unwrap();
-	copy_directory_hash(root, STORED_DOCS, STORED_LINK);
+	// Preserve both on-disk hashes so an inconsistent hash cannot hide the collision.
 	replace_directory_name(root, STORED_LINK, FOLDED_DOCS);
 	update_checksum(root);
 
@@ -191,18 +188,15 @@ fn refuses_ambiguous_equivalent_stored_names() {
 	)
 	.unwrap()
 	.unwrap();
-	assert!(
-		view.lookup_stored_name(ROOT, STORED_DOCS)
-			.unwrap()
-			.is_some()
-	);
-	assert!(
-		view.lookup_stored_name(ROOT, FOLDED_DOCS)
-			.unwrap()
-			.is_some()
-	);
+	let stored = view.lookup_stored_name(ROOT, STORED_DOCS).unwrap().unwrap();
+	let folded = view.lookup_stored_name(ROOT, FOLDED_DOCS).unwrap().unwrap();
+	assert_ne!(stored.name_hash, folded.name_hash);
 	assert!(matches!(
 		view.lookup_native_name(ROOT, FOLDED_DOCS),
+		Err(Error::Corrupt(Corruption::EquivalentDirectoryNames))
+	));
+	assert!(matches!(
+		view.check_reachable(CheckOptions::default(), || false),
 		Err(Error::Corrupt(Corruption::EquivalentDirectoryNames))
 	));
 }
@@ -236,6 +230,11 @@ fn rejects_a_later_unicode_scalar_in_the_query_or_directory() {
 				if AFTER_UNICODE_9.starts_with(scalar)
 		));
 	}
+	assert!(matches!(
+		view.check_reachable(CheckOptions::default(), || false),
+		Err(Error::Name(NameError::UnsupportedScalar { scalar }))
+			if AFTER_UNICODE_9.starts_with(scalar)
+	));
 }
 
 fn copy_directory_hash(root: &mut [u8; BLOCK_BYTES], from: &str, to: &str) {

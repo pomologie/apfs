@@ -17,7 +17,7 @@ const FORK_PATTERN: &[u8] = b"APFS shared resource fork\n";
 const FORK_REPETITIONS: usize = 200;
 const RESOURCE_FORK: &str = "com.apple.ResourceFork";
 
-const FSROOT: u64 = 206;
+pub(super) const FSROOT: u64 = 206;
 const TYPE_SHIFT: u32 = 60;
 const INODE_TYPE: u64 = 3;
 const SIBLING_LINK_TYPE: u64 = 5;

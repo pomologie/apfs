@@ -9,8 +9,8 @@ use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::object::{ObjectId, TransactionId};
 
 use crate::{
-	Corruption, Error, FileKind, Inode, InodeCount, InodeId, Limit, Unsupported, VolumeView,
-	XattrStorage,
+	Corruption, Error, FileKind, Inode, InodeCount, InodeId, Limit, NameProfile, Unsupported,
+	VolumeView, XattrStorage,
 	record::{INODE_HAS_RESOURCE_FORK, INODE_NO_RESOURCE_FORK},
 	volume::verify_directory_target,
 	xattr::RESOURCE_FORK_ATTRIBUTE,
@@ -81,10 +81,11 @@ pub struct CheckReport {
 
 impl<S: ReadAt> VolumeView<'_, S> {
 	/// Verifies the admitted filesystem records reachable from the user-visible
-	/// root. Success covers directory and inode relations, hard-link groups,
-	/// inline symlink targets, stored xattrs, and unshared extent ownership.
-	/// Allocation accounting, unreachable records, snapshots, name equivalence,
-	/// and payload checksums are outside this operation's scope.
+	/// root. Success covers uniqueness under the volume's qualified name
+	/// profile, directory and inode relations, hard-link groups, inline symlink
+	/// targets, stored xattrs, and unshared extent ownership. Allocation
+	/// accounting, unreachable records, snapshots, and payload checksums are
+	/// outside this operation's scope.
 	///
 	/// `cancelled` is polled between directories, entries, inodes, attribute
 	/// operations, and payload reads. Individual metadata scans have their own
@@ -92,8 +93,8 @@ impl<S: ReadAt> VolumeView<'_, S> {
 	/// Consumed I/O stays charged to the volume view.
 	///
 	/// # Errors
-	/// Returns errors for corrupt records, unsupported structures, source
-	/// failures, exhausted limits, or cancellation.
+	/// Returns errors for corrupt records, names outside the qualified profile,
+	/// unsupported structures, source failures, exhausted limits, or cancellation.
 	pub fn check_reachable(
 		&mut self,
 		options: CheckOptions,
@@ -173,6 +174,7 @@ impl<C: FnMut() -> bool> Check<C> {
 	) -> Result<Vec<Entry>, Error<S::Error>> {
 		let mut pending = Vec::new();
 		let mut entries = Vec::new();
+		let names = view.name_profile();
 		push(
 			&mut pending,
 			Directory {
@@ -190,10 +192,14 @@ impl<C: FnMut() -> bool> Check<C> {
 				return Err(Corruption::DirectoryTarget.into());
 			}
 			let mut children = Vec::new();
+			let mut native_keys = Vec::new();
 			view.scan_directory(directory.id, |_, entry| {
 				self.poll()?;
 				if self.report.directory_entries == self.options.max_directory_entries {
 					return Err(Error::Limit(Limit::CheckDirectoryEntries));
+				}
+				if names != NameProfile::Binary {
+					push(&mut native_keys, names.key(entry.name)?)?;
 				}
 				push(&mut children, entry.into_owned()?)?;
 				self.report.directory_entries += 1;
@@ -202,6 +208,10 @@ impl<C: FnMut() -> bool> Check<C> {
 			children.sort_unstable_by(|left, right| left.name.cmp(&right.name));
 			if children.windows(2).any(|pair| pair[0].name == pair[1].name) {
 				return Err(Corruption::DuplicateEntry.into());
+			}
+			native_keys.sort_unstable();
+			if native_keys.windows(2).any(|pair| pair[0] == pair[1]) {
+				return Err(Corruption::EquivalentDirectoryNames.into());
 			}
 			for child in children {
 				if child.kind == FileKind::Directory {
