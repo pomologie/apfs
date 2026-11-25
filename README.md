@@ -14,7 +14,7 @@ Container volume discovery resolves ordinary unencrypted volume superblocks thro
 
 Native fixtures from macOS 14.7.2 cover two checkpoints, their ephemeral payloads, both container object maps, and the volume superblock resolved by the second map. Apple’s read-only `fsck_apfs` selected XID 2 on the complete source image and reported the same volume label and UUID. [Fixture provenance](crates/container/apfs-container/tests/fixtures/native-apfs.json)
 
-`apfs-mounted` is the macOS companion for descriptor-scoped copy and recovery. It exposes Darwin volume capabilities, native identities, metadata, bounded I/O, advisory leases, and exclusive publication over caller-authorized handles. [Mounted API and qualification](crates/platform/apfs-mounted/README.md)
+`apfs-mounted` is the macOS companion for descriptor-scoped copy and recovery. It exposes Darwin volume capabilities, native identities, metadata, bounded I/O, advisory leases, and exclusive publication over caller-authorized handles. [Mounted API and ExaCopy contract](docs/features/MOUNTED.md)
 
 ```sh
 cargo nextest run --locked
@@ -22,4 +22,4 @@ cargo build --locked -p apfs-reader --no-default-features --target aarch64-unkno
 cargo build --locked -p apfs-reader --no-default-features --target x86_64-unknown-none
 ```
 
-See the [architecture](ARCHITECTURE.md) and [roadmap](ROADMAP.md) for filesystem payloads and release qualification.
+See the [architecture](docs/architecture/ARCHITECTURE.md) and [roadmap](docs/architecture/ROADMAP.md) for filesystem payloads and release qualification.
