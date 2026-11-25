@@ -14,7 +14,10 @@ use crate::{
 	Corruption, Error, FileKind, Inode, InodeId, StreamSizes, Unsupported, VolumeView,
 	extent_refs::References,
 	node::Slot,
-	record::{INODE_HAS_RESOURCE_FORK, INODE_IS_SPARSE, INODE_NO_RESOURCE_FORK, Prefix},
+	record::{
+		INODE_HAS_FINDER_INFO, INODE_HAS_RESOURCE_FORK, INODE_IS_SPARSE, INODE_NO_RESOURCE_FORK,
+		Prefix,
+	},
 	walk,
 	wire::{U64_BYTES, u32_at, u64_at},
 	xattr::{COMPRESSION_ATTRIBUTE, SYMLINK_ATTRIBUTE, symlink_bytes},
@@ -22,7 +25,6 @@ use crate::{
 
 const INODE_WAS_CLONED: u64 = 1 << 4;
 const INODE_HAS_SECURITY_EA: u64 = 1 << 6;
-const INODE_HAS_FINDER_INFO: u64 = 1 << 8;
 const INODE_WAS_EVER_CLONED: u64 = 1 << 10;
 const INODE_HAS_UNCOMPRESSED_SIZE: u64 = 1 << 18;
 const SUPPORTED_INODE_DATA_FLAGS: u64 = INODE_HAS_SECURITY_EA

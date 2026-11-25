@@ -27,6 +27,7 @@ const INODE_MODIFIED: usize = 24;
 const INODE_CHANGED: usize = 32;
 const INODE_ACCESSED: usize = 40;
 const INODE_FLAGS: usize = 48;
+pub(crate) const INODE_HAS_FINDER_INFO: u64 = 1 << 8;
 pub(crate) const INODE_IS_SPARSE: u64 = 1 << 9;
 pub(crate) const INODE_HAS_RESOURCE_FORK: u64 = 1 << 14;
 pub(crate) const INODE_NO_RESOURCE_FORK: u64 = 1 << 15;
@@ -62,7 +63,7 @@ const DATA_STREAM_BYTES: usize = 5 * U64_BYTES;
 const STREAM_SIZE: usize = 0;
 const STREAM_ALLOCATED: usize = 8;
 const STREAM_CRYPTO_ID: usize = 16;
-const FINDER_INFO_BYTES: usize = 32;
+pub(crate) const FINDER_INFO_BYTES: usize = 32;
 
 /// An inode number interpreted within one APFS volume.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -160,7 +161,7 @@ pub struct Inode {
 	pub stream: Option<StreamSizes>,
 	pub(crate) sparse: Option<SparseField>,
 	pub(crate) other_data_field: Option<u8>,
-	pub(crate) has_finder_info_field: bool,
+	pub(crate) finder_info: Option<[u8; FINDER_INFO_BYTES]>,
 }
 
 impl Inode {
@@ -297,7 +298,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 	let mut stream = None;
 	let mut sparse = None;
 	let mut other_data_field = None;
-	let mut has_finder_info_field = false;
+	let mut finder_info = None;
 	xfields(&value[INODE_BYTES..], |tag, flags, data| {
 		match tag {
 			XFIELD_NAME => {
@@ -311,8 +312,9 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 				});
 			}
 			XFIELD_SPARSE_BYTES => return Err(Corruption::ExtendedFields),
-			XFIELD_FINDER_INFO if data.len() == FINDER_INFO_BYTES => has_finder_info_field = true,
-			XFIELD_FINDER_INFO => return Err(Corruption::ExtendedFields),
+			XFIELD_FINDER_INFO => {
+				finder_info = Some(data.try_into().map_err(|_| Corruption::ExtendedFields)?);
+			}
 			_ => {
 				other_data_field.get_or_insert(tag);
 			}
@@ -330,7 +332,7 @@ pub(crate) fn inode(id: InodeId, key: &[u8], value: &[u8]) -> Result<Inode, Corr
 		stream,
 		sparse,
 		other_data_field,
-		has_finder_info_field,
+		finder_info,
 		times: Times {
 			created: u64_at(value, INODE_CREATED)?,
 			modified: u64_at(value, INODE_MODIFIED)?,

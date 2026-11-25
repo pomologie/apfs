@@ -2,6 +2,8 @@ use core::fmt;
 
 use apfs_format::object::ObjectId;
 
+use crate::record::InodeId;
+
 /// Invalid structure encountered while reading a filesystem tree or record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -37,6 +39,7 @@ pub enum Corruption {
 	ExtentMetadataAlias,
 	SymlinkRecord,
 	XattrRecord,
+	FinderInfo,
 	ResourceForkFlags,
 	DuplicateXattr,
 	PhysicalNode(apfs_format::Error),
@@ -92,6 +95,7 @@ pub enum Error<E> {
 	InvalidName,
 	InvalidXattrName,
 	InvalidCursor,
+	MissingInode(InodeId),
 	NotDirectory,
 	NotRegularFile,
 	NotSymlink,
@@ -134,6 +138,7 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
 			Self::InvalidName => f.write_str("invalid APFS name component"),
 			Self::InvalidXattrName => f.write_str("invalid APFS extended attribute name"),
 			Self::InvalidCursor => f.write_str("APFS cursor is outside this view or inode"),
+			Self::MissingInode(id) => write!(f, "APFS inode {} was not found", id.as_raw()),
 			Self::NotDirectory => f.write_str("APFS directory inode required"),
 			Self::NotRegularFile => f.write_str("APFS regular file inode required"),
 			Self::NotSymlink => f.write_str("APFS symbolic link inode required"),

@@ -299,7 +299,7 @@ impl<C: FnMut() -> bool> Check<C> {
 			}
 			FileKind::Other(kind) => return Err(Unsupported::CheckFileKind(kind).into()),
 		}
-		if inode.has_finder_info_field {
+		if inode.finder_info.is_some() {
 			return Err(Unsupported::InodeFinderInfo.into());
 		}
 		self.check_attributes(view, inode)

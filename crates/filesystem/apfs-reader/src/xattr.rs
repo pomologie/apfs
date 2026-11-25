@@ -9,7 +9,7 @@ use apfs_format::object::ObjectId;
 use crate::{
 	Corruption, Error, FileData, InodeId, Limit, StreamSizes, Unsupported, VolumeView,
 	payload::{StreamKind, checked_read_end},
-	record::{Prefix, stream_sizes},
+	record::{FINDER_INFO_BYTES, INODE_HAS_FINDER_INFO, Prefix, stream_sizes},
 	volume::ViewIdentity,
 	walk,
 	wire::{U16_BYTES, U64_BYTES, u16_at, u64_at},
@@ -207,7 +207,7 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		let Some(inode) = self.stat(id)? else {
 			return Ok(None);
 		};
-		if name == FINDER_INFO_ATTRIBUTE && inode.has_finder_info_field {
+		if name == FINDER_INFO_ATTRIBUTE && inode.finder_info.is_some() {
 			return Err(Unsupported::InodeFinderInfo.into());
 		}
 		let Some(data) = self.with_xattr(id, name, |value| {
@@ -255,6 +255,39 @@ impl<'source, S: ReadAt> VolumeView<'source, S> {
 		id: InodeId,
 	) -> Result<Option<XattrData<'_, 'source, S>>, Error<S::Error>> {
 		self.open_xattr(id, RESOURCE_FORK_ATTRIBUTE)
+	}
+
+	/// Reads the exact FinderInfo bytes of an existing inode. A value can
+	/// reside in the inode's extended fields or in an inline attribute.
+	/// Returns `None` when neither is present and the inode flag agrees.
+	///
+	/// # Errors
+	/// Returns an error for a missing inode, conflicting representations,
+	/// inconsistent presence, malformed values, unsupported storage, or
+	/// failures reading the metadata tree within its limits.
+	pub fn finder_info(
+		&mut self,
+		id: InodeId,
+	) -> Result<Option<[u8; FINDER_INFO_BYTES]>, Error<S::Error>> {
+		let inode = self.stat(id)?.ok_or(Error::MissingInode(id))?;
+		let attribute = self.with_xattr(id, FINDER_INFO_ATTRIBUTE, |value| {
+			let (flags, payload) = decode_value(value)?;
+			match payload {
+				Payload::Inline(data) if matches!(flags, EMBEDDED | INLINE_FILESYSTEM_FLAGS) => {
+					data.try_into().map_err(|_| Corruption::FinderInfo.into())
+				}
+				_ => Err(Unsupported::XattrStorage(flags).into()),
+			}
+		})?;
+		if inode.finder_info.is_some() && attribute.is_some() {
+			return Err(Corruption::FinderInfo.into());
+		}
+		let finder_info = inode.finder_info.or(attribute);
+		let flag_present = inode.internal_flags & INODE_HAS_FINDER_INFO != 0;
+		if finder_info.is_some() != flag_present {
+			return Err(Corruption::FinderInfo.into());
+		}
+		Ok(finder_info)
 	}
 
 	pub(crate) fn with_xattr<T>(
