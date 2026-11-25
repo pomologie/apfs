@@ -3,10 +3,12 @@
 //! The portable APFS image crates do not depend on this companion.
 
 #![cfg(target_os = "macos")]
-#![deny(unsafe_code)]
 
+pub mod identity;
 mod scope;
+pub mod volume;
 
+pub use identity::{BirthTime, IdentityError, MountIdentity, ObjectIdentity};
 pub use scope::{
 	Directory, DirectoryCreateError, EntryName, EventHandle, InvalidEntryName,
 	MAX_ENTRY_NAME_BYTES, stored_name,

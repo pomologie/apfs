@@ -13,3 +13,10 @@ rustix.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 tempfile = "=3.27.0"
+
+# Hosted Darwin bindings allow only documented function-level exceptions.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

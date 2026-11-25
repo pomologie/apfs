@@ -6,7 +6,7 @@ use std::{
 	os::fd::{AsFd, BorrowedFd, OwnedFd},
 };
 
-use rustix::fs::{FileType, Mode, OFlags, fstat, mkdirat, openat};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, mkdirat, openat, statat};
 
 mod darwin;
 #[cfg(test)]
@@ -14,7 +14,7 @@ mod tests;
 
 pub use darwin::stored_name;
 
-/// Maximum byte length of a Darwin directory entry component.
+/// Byte limit of the supported directory entry profile.
 pub const MAX_ENTRY_NAME_BYTES: usize = 255;
 const NO_FOLLOW: OFlags = OFlags::NOFOLLOW
 	.union(OFlags::CLOEXEC)
@@ -103,17 +103,30 @@ impl Directory {
 	/// # Errors
 	/// Fails on lookup, permission, type, or symlink errors.
 	pub fn open_file(&self, name: &EntryName) -> io::Result<File> {
+		let inspect = || statat(self, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW);
+		let expected = inspect()?;
+		if FileType::from_raw_mode(expected.st_mode) != FileType::RegularFile {
+			return Err(io::Error::new(
+				io::ErrorKind::InvalidData,
+				"expected a regular file",
+			));
+		}
 		let file = openat(
 			self,
 			name.as_c_str(),
 			OFlags::RDONLY | NO_FOLLOW,
 			Mode::empty(),
 		)?;
-		if FileType::from_raw_mode(fstat(&file)?.st_mode) != FileType::RegularFile {
-			return Err(io::Error::new(
-				io::ErrorKind::InvalidData,
-				"expected a regular file",
-			));
+		for observed in [fstat(&file)?, inspect()?] {
+			if FileType::from_raw_mode(observed.st_mode) != FileType::RegularFile
+				|| (observed.st_dev, observed.st_ino, observed.st_gen)
+					!= (expected.st_dev, expected.st_ino, expected.st_gen)
+			{
+				return Err(io::Error::new(
+					io::ErrorKind::InvalidData,
+					"regular file binding changed while opening",
+				));
+			}
 		}
 		Ok(File::from(file))
 	}
