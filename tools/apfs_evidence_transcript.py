@@ -168,6 +168,28 @@ def verify_bootstrap_properties(transcript, cases, versions):
     require(actual == expected, "missing, duplicate, or unexpected bootstrap property scenarios")
 
 
+def verify_format_fuzz(transcript, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
+            and lines.count(f"cargo-fuzz {versions['cargo-fuzz']}") == 1
+            and lines.count(f"libfuzzer-sys v{versions['libfuzzer-sys']}") == 1,
+            "format fuzz transcript has the wrong tool versions")
+    seed, runs, maximum = (bounds[key] for key in ("seed", "runs", "max_request_bytes"))
+    marker = f"APFS format fuzz AddressSanitizer {versions['toolchain']} seed {seed} runs {runs} max-request-bytes {maximum}"
+    require(lines.count(marker) == 1 and lines.count(f"INFO: Seed: {seed}") == 1,
+            "format fuzz sanitizer or seed does not match policy")
+    corpus = bounds["seed_requests"]
+    corpus_prefix = f"INFO: seed corpus: files: {corpus} min: {maximum}b max: {maximum}b total: {corpus * maximum}b "
+    require(sum(line.startswith(corpus_prefix) for line in lines) == 1, "format fuzz seed corpus does not match policy")
+    completion = "APFS format requests fuzz completed"
+    require(lines[-1:] == [completion] and lines.count(completion) == 1
+            and sum(bool(re.match(rf"^#{runs}\s+DONE\s+cov: [1-9]\d*\b", line)) for line in lines) == 1
+            and sum(bool(re.fullmatch(rf"Done {runs} runs in \d+ second\(s\)", line)) for line in lines) == 1,
+            "format fuzz run did not complete the required observations")
+    require(not re.search(r"(?:ERROR|SUMMARY): (?:AddressSanitizer|libFuzzer)", transcript),
+            "format fuzz reported a runtime error")
+
+
 def verify_locator_properties(transcript, cases, bounds, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1

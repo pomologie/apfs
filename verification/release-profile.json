@@ -60,6 +60,15 @@
         "rows": {"nxsb": 3, "area": 6, "map": 2, "mapping": 6, "header": 5, "profile": 3}
       }
     },
+    "format-request-fuzz": {
+      "obligation": "A-V01",
+      "method": "fuzz",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/fuzz/check-format-requests.sh"],
+      "tool_versions": {"rustc": "1.101.0-nightly", "toolchain": "nightly-2026-11-04", "cargo-fuzz": "0.13.2", "libfuzzer-sys": "0.4.13"},
+      "bounds": {"seed": 7, "runs": 20000, "max_request_bytes": 17, "seed_requests": 58}
+    },
     "bootstrap-properties": {
       "obligation": "A-V01",
       "method": "property",

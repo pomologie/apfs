@@ -13,7 +13,7 @@ from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
-    verify_native_windows, verify_tlc,
+    verify_format_fuzz, verify_native_windows, verify_tlc,
 )
 
 
@@ -172,6 +172,12 @@ def verify_method_policy(name, profile):
             require(isinstance(rows, list) and rows and all(isinstance(row, list) and len(row) == columns
                     and all(positive_integer(value) for value in row) for row in rows)
                     and len({tuple(row) for row in rows}) == len(rows), f"invalid {case} rows for {name}")
+    elif method == "fuzz":
+        require(set(profile) == PROFILE_FIELDS | {"partial"} and profile["partial"] is True
+                and set(versions) == {"rustc", "toolchain", "cargo-fuzz", "libfuzzer-sys"},
+                f"invalid format fuzz policy for {name}")
+        require(set(bounds) == {"seed", "runs", "max_request_bytes", "seed_requests"}
+                and all(positive_integer(value) for value in bounds.values()), f"invalid format fuzz bounds for {name}")
     elif method == "native":
         if "native_checkpoints" in profile:
             verify_native_checkpoint_policy(name, profile)
@@ -471,6 +477,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         require(record.get("seed") == str(profile["bounds"]["seed"]), "geometry span seed does not match profile")
     if "complete_object_cases" in profile:
         require(record.get("seed") == str(profile["bounds"]["seed"]), "complete object seed does not match profile")
+    if profile["method"] == "fuzz":
+        require(record.get("seed") == str(profile["bounds"]["seed"]), "format fuzz seed does not match profile")
     require((proof is None and "proof" not in record) or (proof is not None and record.get("proof") == proof),
             "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
@@ -478,6 +486,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_kani(transcript, profile["harnesses"], profile["tool_versions"])
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
+    elif profile["method"] == "fuzz":
+        verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
         if "native_source_profile" in profile:
             fixtures = profile["native_checkpoints"]
