@@ -190,6 +190,16 @@
         }
       }
     },
+    "checkpoint-native-differential": {
+      "obligation": "A-V02",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/filesystem/apfs-reader/verification/compare-native-checkpoints.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"descriptor_ring_slots": 8, "snapshots": 2, "candidate_xids_per_snapshot": 4},
+      "native_source_profile": "checkpoint-native-replay"
+    },
     "checkpoint-model-properties": {
       "obligation": "A-V02",
       "method": "property",

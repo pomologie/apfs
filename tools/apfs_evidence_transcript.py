@@ -34,6 +34,8 @@ NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
 NATIVE_CHECKPOINT_PREFIX = "APFS native checkpoints "
 NATIVE_CHECKPOINT_SUCCESS = "APFS native checkpoints replay completed"
+CHECKPOINT_DIFFERENTIAL_PREFIX = "APFS checkpoint differential matched "
+CHECKPOINT_DIFFERENTIAL_SUCCESS = "APFS checkpoint differential completed"
 LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 CHECKPOINT_MODEL_PREFIX = "APFS checkpoint model "
@@ -281,6 +283,11 @@ def verify_native_bootstrap(transcript, fixture, bounds, versions):
             "native bootstrap ledger, fixture, or replay facts disagree with the policy")
 
 
+def checkpoint_replay_facts(name, snapshot, slots):
+    return (f"{name} {snapshot['xid']} {snapshot['descriptor']} {slots} {snapshot['next_slot']} "
+            f"{snapshot['live_slots']} {snapshot['descriptor_xids']} {snapshot['payload_blocks']}")
+
+
 def verify_native_checkpoints(transcript, fixtures, bounds, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
@@ -293,9 +300,22 @@ def verify_native_checkpoints(transcript, fixtures, bounds, versions):
             f"fixture {name} {snapshot['ledger_sha256']} {snapshot['packed_sha256']} {snapshot['raw_sha256']}",
             f"oracle {name} {fixtures['os_version']} {fixtures['os_build']} {fixtures['architecture']} "
             f"{fixtures['oracle_version']} 0 {snapshot['xid']}",
-            f"replay {name} {snapshot['xid']} {snapshot['descriptor']} {bounds['descriptor_ring_slots']} "
-            f"{snapshot['next_slot']} {snapshot['live_slots']} {snapshot['descriptor_xids']} {snapshot['payload_blocks']}",
+            f"replay {checkpoint_replay_facts(name, snapshot, bounds['descriptor_ring_slots'])}",
         ])
     actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_CHECKPOINT_PREFIX))
     require(actual == Counter(f"{NATIVE_CHECKPOINT_PREFIX}{row}" for row in expected),
             "native checkpoint ledgers, fixture digests, or observed selection disagree with the policy")
+
+
+def verify_checkpoint_differential(transcript, fixtures, bounds, versions):
+    lines = transcript.splitlines()
+    require(lines[-1:] == [CHECKPOINT_DIFFERENTIAL_SUCCESS] and lines.count(CHECKPOINT_DIFFERENTIAL_SUCCESS) == 1,
+            "checkpoint differential did not complete")
+    require(lines.count(NATIVE_CHECKPOINT_SUCCESS) == 1, "expected one native production replay")
+    boundary = lines.index(NATIVE_CHECKPOINT_SUCCESS)
+    verify_native_checkpoints("\n".join(lines[:boundary + 1]), fixtures, bounds, versions)
+    expected = Counter(f"{CHECKPOINT_DIFFERENTIAL_PREFIX}"
+                       f"{checkpoint_replay_facts(name, snapshot, bounds['descriptor_ring_slots'])}"
+                       for name, snapshot in fixtures["snapshots"].items())
+    require(Counter(lines[boundary + 1:-1]) == expected,
+            "missing or inconsistent independent checkpoint comparisons")

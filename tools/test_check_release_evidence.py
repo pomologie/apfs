@@ -10,7 +10,8 @@ import unittest
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
-    verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
+    verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
+    verify_locator_properties, verify_native_checkpoints,
     verify_complete_objects, verify_native_geometry,
     verify_native_windows,
     verify_span_properties,
@@ -523,6 +524,12 @@ APFS native checkpoints replay sample 4 8 8 0 [6, 7] [1, 2, 3, 4] [19, 20, 21, 2
 APFS native checkpoints replay completed
 """
         verify_native_checkpoints(transcript, fixtures, bounds, versions)
+        independent = "APFS checkpoint differential matched sample 4 8 8 0 [6, 7] [1, 2, 3, 4] [19, 20, 21, 22]\n"
+        complete = "APFS checkpoint differential completed\n"
+        verify_checkpoint_differential(transcript + independent + complete, fixtures, bounds, versions)
+        with self.assertRaisesRegex(EvidenceError, "inconsistent independent checkpoint comparisons"):
+            verify_checkpoint_differential(transcript + independent.replace(" 4 8 8", " 6 8 8") + complete,
+                                           fixtures, bounds, versions)
         for old, replacement, expected in (
             ("a" * 64, "f" * 64, "disagree"),
             ("c" * 64, "f" * 64, "disagree"),

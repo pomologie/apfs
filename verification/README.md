@@ -42,6 +42,8 @@ The `checkpoint-layout-properties` profile compares valid production selection w
 
 The `checkpoint-native-replay` profile validates the two retained Sonoma acquisition ledgers and packed fixtures, then replays automatic and exact checkpoint selection across descriptor slot reuse. It requires Apple’s recorded read-only checker results at XIDs 4 and 6, plus the observed descriptor addresses, ring slots, and mapped payload addresses. Use the ordered digest of the two ledger hashes from `native_checkpoints.ledger_set_sha256` as `fixture_hash`. This profile covers the retained positive native cases. Native straddling and damaged-checkpoint witnesses remain separate A-V02 evidence. [Checkpoint replay](../crates/filesystem/apfs-reader/tests/view/native_checkpoints.rs)
 
+The `checkpoint-native-differential` profile reuses the same fixture policy and `fixture_hash`. An independent Python scan reads all four descriptor and map pairs in each eight-slot ring and checks their wire checksums and mapping spans. It verifies the newest candidate’s retained payload and object-map headers and compares the production selection facts with the native acquisition result. The comparison covers the two retained positive snapshots. Older candidates contribute descriptor and map evidence, with retained payload coverage for the selected XIDs. Broader differential coverage remains open for A-V02. [Wire comparator](../crates/filesystem/apfs-reader/verification/compare_native_checkpoints.py)
+
 The release process supplies the logs from the actual invocations. Profile passes and the standalone checker tests are partial evidence for A-VER-02-T01. [Checker tests](../tools/test_check_release_evidence.py)
 
 ## Architecture and coverage

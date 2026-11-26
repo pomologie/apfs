@@ -11,7 +11,7 @@ import sys
 
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
-    NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
+    NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     verify_native_windows, verify_tlc,
 )
@@ -128,6 +128,14 @@ def verify_method_policy(name, profile):
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
     elif method == "differential":
+        if "native_source_profile" in profile:
+            require(set(profile) == PROFILE_FIELDS | {"native_source_profile", "partial"}
+                    and profile["partial"] is True and "rustc" in versions and text(profile["native_source_profile"]),
+                    f"invalid checkpoint differential policy for {name}")
+            require(set(bounds) == {"descriptor_ring_slots", "snapshots", "candidate_xids_per_snapshot"}
+                    and all(positive_integer(value) for value in bounds.values()),
+                    f"invalid checkpoint differential bounds for {name}")
+            return
         if "geometry_cases" in profile:
             verify_native_geometry_policy(name, profile)
             return
@@ -378,6 +386,8 @@ def required_matrix(policy, registry, requested_profile):
         if not profile.get("partial", False):
             covered.add((obligation, method))
 
+    profiles = {name: resolve_native_checkpoint_source(name, profile, profiles) for name, profile in profiles.items()}
+
     if requested_profile is not None:
         require(requested_profile in profiles, "unknown requested profile")
         return {requested_profile: profiles[requested_profile]}
@@ -386,6 +396,21 @@ def required_matrix(policy, registry, requested_profile):
         unconfigured = ", ".join(f"{obligation}/{method}" for obligation, method in sorted(missing))
         raise EvidenceError(f"release policy omits {unconfigured}")
     return profiles
+
+
+def resolve_native_checkpoint_source(name, profile, profiles):
+    if "native_source_profile" not in profile:
+        return profile
+    source = profiles.get(profile["native_source_profile"])
+    require(source is not None and source["method"] == "native" and source["obligation"] == profile["obligation"]
+            and "native_checkpoints" in source, f"invalid native checkpoint source for {name}")
+    bounds = profile["bounds"]
+    fixtures = source["native_checkpoints"]
+    require(source["tool_versions"] == profile["tool_versions"] and all(
+        bounds[key] == value for key, value in source["bounds"].items()
+    ) and all(len(snapshot["descriptor_xids"]) == bounds["candidate_xids_per_snapshot"]
+              for snapshot in fixtures["snapshots"].values()), f"checkpoint differential scope differs from {name}'s source")
+    return profile | {"native_checkpoints": fixtures}
 
 
 def read_artifacts(root, artifacts):
@@ -453,7 +478,12 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
-        if "geometry_cases" in profile:
+        if "native_source_profile" in profile:
+            fixtures = profile["native_checkpoints"]
+            require(record.get("fixture_hash") == fixtures["ledger_set_sha256"],
+                    "native fixture hash does not match the checkpoint acquisition ledgers")
+            verify_checkpoint_differential(transcript, fixtures, profile["bounds"], profile["tool_versions"])
+        elif "geometry_cases" in profile:
             cases = profile["geometry_cases"]
             require(record.get("fixture_hash") == cases["ledger_sha256"],
                     "native geometry fixture hash does not match the acquisition ledger")
