@@ -14,5 +14,9 @@ apfs-format.workspace = true
 # Workspace foundation
 apfs-core.workspace = true
 
+[dev-dependencies]
+# Fixture files
+tempfile = "=3.27.0"
+
 [lints]
 workspace = true

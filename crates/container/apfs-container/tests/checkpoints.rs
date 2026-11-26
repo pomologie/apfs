@@ -9,6 +9,8 @@ use apfs_format::{
 
 #[path = "checkpoint_selection/exact.rs"]
 mod exact;
+#[path = "checkpoint_selection/hosted_parity.rs"]
+mod hosted_parity;
 #[path = "object_map/lookup.rs"]
 mod object_map;
 #[path = "volume_objects/resolution.rs"]

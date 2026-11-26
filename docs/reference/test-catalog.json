@@ -596,11 +596,11 @@
         "A-PORT-01"
       ],
       "milestone": "0.1.0",
-      "scenario": "Run same semantic fixtures against no_std-configured engine in hosted test harness and std-enabled engine; compare metadata, bytes and typed errors.",
+      "scenario": "Compare metadata, bytes and typed errors from the same fixtures in the simulated-device and hosted profiles. A dual-mode engine runs with std both disabled and enabled. An unconditional no_std engine runs through simulated and std-backed sources.",
       "oracle": "Shared native-derived fixtures and independent expectations",
       "expected": "Both configurations match the qualified semantics; no host-only logic substitute.",
-      "status": "planned",
-      "evidence": null
+      "status": "pass",
+      "evidence": "docs/architecture/VERIFICATION.md"
     },
     {
       "id": "A-PORT-01-T04",
