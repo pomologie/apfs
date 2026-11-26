@@ -332,6 +332,32 @@
       ],
       "status": "pass",
       "mandatory": false
+    },
+    {
+      "id": "A-MOUNT-02",
+      "milestone": "0.1.0",
+      "owner": "docs/features/MOUNTED.md",
+      "requirement": "Retain an owned event-only inventory anchor for a present name. Observe bounded metadata through the held identity, distinguish initial absence, and refuse changed bindings.",
+      "source_ids": [],
+      "acceptance_tests": [
+        "A-MOUNT-02-T01",
+        "A-MOUNT-03-T02"
+      ],
+      "status": "pass",
+      "mandatory": false
+    },
+    {
+      "id": "A-MOUNT-03",
+      "milestone": "0.1.0",
+      "owner": "docs/features/MOUNTED.md",
+      "requirement": "Create a private artifact exclusively, run caller checks, write its declared extent, perform the full-file barrier and consuming close, and verify exact bytes from an independent read-only reopen. Preserve affected entries and report failures by phase.",
+      "source_ids": [],
+      "acceptance_tests": [
+        "A-MOUNT-03-T01",
+        "A-MOUNT-03-T02"
+      ],
+      "status": "pass",
+      "mandatory": false
     }
   ]
 }

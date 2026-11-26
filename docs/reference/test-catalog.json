@@ -625,6 +625,43 @@
       "expected": "Exact bytes and EOF from the read-only descriptor. Typed failure for refused or changed bindings.",
       "status": "pass",
       "evidence": "crates/platform/apfs-mounted/tests/private_recovery.rs"
+    },
+    {
+      "id": "A-MOUNT-02-T01",
+      "requirement_ids": [
+        "A-MOUNT-02"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Retain an owned observation after the original directory handle and raw name leave scope. Replace the directory path, substitute the selected entry during observation, and try a missing name and a symlink.",
+      "oracle": "Native APFS on macOS 14.7.2 (23H311), arm64, under isolated temporary directories",
+      "expected": "The anchor continues to observe the original directory inode after path replacement. Missing names return absence, symlinks are refused, and rebinding causes a typed error.",
+      "status": "pass",
+      "evidence": "crates/platform/apfs-mounted/tests/owned_inventory.rs"
+    },
+    {
+      "id": "A-MOUNT-03-T01",
+      "requirement_ids": [
+        "A-MOUNT-03"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Exercise guarded private creation, bounded writes and independent read-back. Refuse a write to an occupied name and test policy failures before and after creation.",
+      "oracle": "Native APFS on macOS 14.7.2 (23H311), arm64, and controlled caller refusals",
+      "expected": "Successful creation returns a closed and verified artifact. Refusals distinguish skipped creation, occupied names and retained private artifacts.",
+      "status": "pass",
+      "evidence": "crates/platform/apfs-mounted/src/writer/artifact/tests.rs"
+    },
+    {
+      "id": "A-MOUNT-03-T02",
+      "requirement_ids": [
+        "A-MOUNT-02",
+        "A-MOUNT-03"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Under an exclusive lease, create and verify a pending artifact, promote it with checked no-clobber rename, synchronize the directory and observe the final name through an owned event anchor.",
+      "oracle": "Native APFS on macOS 14.7.2 (23H311), arm64, under an isolated temporary directory",
+      "expected": "The pending name is absent. The final anchor matches the artifact's held identity, the post-rename metadata snapshot, and the exact extent.",
+      "status": "pass",
+      "evidence": "crates/platform/apfs-mounted/tests/private_artifact_publication.rs"
     }
   ]
 }
