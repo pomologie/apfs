@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 -B tools/test_check_rust_roots.py
           python3 -B tools/test_check_kernel_dependencies.py
+          python3 -B tools/test_check_release_evidence.py
           python3 tools/check_rust_roots.py
       - run: cargo install --locked cargo-nextest --version '=0.9.151'
       - run: cargo fmt --all -- --check
