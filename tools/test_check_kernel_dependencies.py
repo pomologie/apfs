@@ -26,12 +26,12 @@ class KernelDependencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="apfs-kernel-graph-") as directory:
             workspace = Path(directory)
             (workspace / "Cargo.toml").write_text(
-                '[workspace]\nresolver = "3"\nmembers = ["apfs-core", "derive", "host-std"]\n',
+                '[workspace]\nresolver = "3"\nmembers = ["libapfs-core", "derive", "host-std"]\n',
                 encoding="utf-8",
             )
             write_package(
                 workspace,
-                "apfs-core",
+                "libapfs-core",
                 f"""
 [features]
 {HOST_ONLY} = ["dep:host-std"]
@@ -63,7 +63,7 @@ host-std = { path = "../host-std" }
             )
             for target in TARGETS:
                 with self.subTest(target=target):
-                    command = ["bash", str(CHECKER), "apfs-core", target]
+                    command = ["bash", str(CHECKER), "libapfs-core", target]
                     clean = subprocess.run(
                         command, cwd=workspace, capture_output=True, text=True
                     )

@@ -6,14 +6,10 @@ version = 4
 name = "apfs-container"
 version = "0.1.0"
 dependencies = [
- "apfs-core",
  "apfs-format",
+ "libapfs-core",
  "tempfile",
 ]
-
-[[package]]
-name = "apfs-core"
-version = "0.1.0"
 
 [[package]]
 name = "apfs-format"
@@ -36,8 +32,8 @@ name = "apfs-reader"
 version = "0.1.0"
 dependencies = [
  "apfs-container",
- "apfs-core",
  "apfs-format",
+ "libapfs-core",
 ]
 
 [[package]]
@@ -111,6 +107,10 @@ dependencies = [
  "r-efi",
  "rand_core",
 ]
+
+[[package]]
+name = "libapfs-core"
+version = "0.1.0"
 
 [[package]]
 name = "libc"

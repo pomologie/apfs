@@ -10,9 +10,9 @@ case "$target" in
   *) printf 'Unsupported kernel target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$package" in
-  apfs-core|apfs-format) expected=$package ;;
-  apfs-container) expected=$(printf '%s\n' apfs-container apfs-core apfs-format) ;;
-  apfs-reader) expected=$(printf '%s\n' apfs-container apfs-core apfs-format apfs-reader) ;;
+  libapfs-core|apfs-format) expected=$package ;;
+  apfs-container) expected=$(printf '%s\n' apfs-container apfs-format libapfs-core) ;;
+  apfs-reader) expected=$(printf '%s\n' apfs-container apfs-format apfs-reader libapfs-core) ;;
   *) printf 'Unsupported kernel package: %s\n' "$package" >&2; exit 2 ;;
 esac
 

@@ -6,7 +6,7 @@ version = 4
 name = "apfs-container"
 version = "0.1.0"
 dependencies = [
- "apfs-core",
+ "libapfs-core",
  "apfs-format",
 ]
 
@@ -15,14 +15,10 @@ name = "apfs-container-fuzz"
 version = "0.0.0"
 dependencies = [
  "apfs-container",
- "apfs-core",
+ "libapfs-core",
  "apfs-format",
  "libfuzzer-sys",
 ]
-
-[[package]]
-name = "apfs-core"
-version = "0.1.0"
 
 [[package]]
 name = "apfs-format"
@@ -78,6 +74,10 @@ dependencies = [
  "getrandom",
  "libc",
 ]
+
+[[package]]
+name = "libapfs-core"
+version = "0.1.0"
 
 [[package]]
 name = "libc"

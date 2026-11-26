@@ -15,7 +15,7 @@ apfs-container = { path = "../..", default-features = false }
 apfs-format = { path = "../../../../formats/apfs-format", default-features = false }
 
 # Workspace foundation
-apfs-core = { path = "../../../../foundation/apfs-core", default-features = false }
+apfs-core = { package = "libapfs-core", path = "../../../../foundation/apfs-core", default-features = false }
 
 # Hosted verification
 libfuzzer-sys = "=0.4.13"

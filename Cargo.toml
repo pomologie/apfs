@@ -31,7 +31,7 @@ apfs-container = { version = "0.1.0", path = "crates/container/apfs-container", 
 apfs-format = { version = "0.1.0", path = "crates/formats/apfs-format", default-features = false }
 
 # Workspace foundation
-apfs-core = { version = "0.1.0", path = "crates/foundation/apfs-core", default-features = false }
+apfs-core = { package = "libapfs-core", version = "0.1.0", path = "crates/foundation/apfs-core", default-features = false }
 
 # Darwin filesystem APIs
 libc = "=0.2.191"
