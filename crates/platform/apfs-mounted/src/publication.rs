@@ -11,13 +11,15 @@ use rustix::{
 };
 
 use crate::{
-	Directory, EntryName, EventHandle,
+	Directory, EntryName,
 	identity::{IdentityError, ObjectIdentity},
 	writer::{BarrierError, sync_directory},
 };
 
+mod event;
 pub(crate) mod observation;
 
+pub use event::{AnchorError, EventEntry, OwnedEventEntry, pin_entry};
 pub use observation::{EntrySnapshot, EntrySnapshotError, EntrySpelling};
 
 // Darwin <sys/stdio.h>. rustix 1.1.6 forwards retained bits to renameatx_np.
@@ -43,90 +45,6 @@ pub fn inventory(directory: &Directory, name: &EntryName) -> EntryObservation {
 		Ok(None) => EntryObservation::Absent,
 		Err(error) => EntryObservation::Inconclusive(error),
 	}
-}
-
-/// A held event-only anchor tied to a particular live name.
-#[derive(Debug)]
-pub struct EventEntry<'location> {
-	directory: &'location Directory,
-	name: &'location EntryName,
-	file: EventHandle,
-	identity: ObjectIdentity,
-}
-
-impl<'location> EventEntry<'location> {
-	pub(crate) const fn location(&self) -> (&'location Directory, &'location EntryName) {
-		(self.directory, self.name)
-	}
-
-	pub(crate) const fn handle(&self) -> &EventHandle {
-		&self.file
-	}
-
-	/// Returns the identity originally captured for this anchor.
-	#[must_use]
-	pub const fn identity(&self) -> &ObjectIdentity {
-		&self.identity
-	}
-
-	/// Check the event descriptor and the relative name against its identity.
-	/// # Errors
-	/// Fails on a changed binding, unavailable evidence, or inspection failure.
-	pub fn revalidate(&self) -> Result<(), IdentityError> {
-		self.identity.revalidate_held(&self.file)?;
-		self.identity.revalidate_named(self.directory, self.name)
-	}
-}
-
-/// Failure when establishing an event-only identity anchor.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum AnchorError {
-	Identity(IdentityError),
-	Open(io::Error),
-}
-
-impl fmt::Display for AnchorError {
-	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-		formatter.write_str(match self {
-			Self::Identity(_) => "could not establish the event entry identity",
-			Self::Open(_) => "could not open the event entry",
-		})
-	}
-}
-
-impl error::Error for AnchorError {
-	fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-		Some(match self {
-			Self::Identity(error) => error,
-			Self::Open(error) => error,
-		})
-	}
-}
-
-/// Open an event-only anchor relative to the held directory.
-///
-/// Returns `None` for initial absence. The anchor has no payload operations.
-/// # Errors
-/// A symlink, failed open, or mismatched identity returns an error. A name
-/// disappearing between lookup and open also returns an error.
-pub fn pin_entry<'location>(
-	directory: &'location Directory,
-	name: &'location EntryName,
-) -> Result<Option<EventEntry<'location>>, AnchorError> {
-	let Some(identity) = ObjectIdentity::named(directory, name).map_err(AnchorError::Identity)?
-	else {
-		return Ok(None);
-	};
-	let file = directory.open_event(name).map_err(AnchorError::Open)?;
-	let entry = EventEntry {
-		directory,
-		name,
-		file,
-		identity,
-	};
-	entry.revalidate().map_err(AnchorError::Identity)?;
-	Ok(Some(entry))
 }
 
 /// A preflight failure that prevented calling the rename primitive.

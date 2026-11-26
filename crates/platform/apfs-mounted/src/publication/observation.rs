@@ -1,8 +1,4 @@
-use std::{
-	error::Error,
-	fmt,
-	os::fd::{AsFd as _, BorrowedFd},
-};
+use std::{error::Error, fmt, os::fd::BorrowedFd};
 
 use crate::{
 	Directory, EntryName,
@@ -11,7 +7,7 @@ use crate::{
 	stored_name,
 };
 
-use super::{EventEntry, RenamedEntry};
+use super::RenamedEntry;
 
 /// Whether an observation accepts the filesystem's lookup spelling or requires the stored bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,28 +88,6 @@ impl From<IdentityError> for EntrySnapshotError {
 impl From<ObservationError> for EntrySnapshotError {
 	fn from(error: ObservationError) -> Self {
 		Self::Metadata(error)
-	}
-}
-
-impl EventEntry<'_> {
-	/// Sample the named entry and run bounded queries on its event-only handle.
-	/// The returned snapshot groups identity, extent, change time and basic
-	/// metadata. The entry binding and snapshot are checked around the queries.
-	/// The caller supplies any required lease and namespace cooperation.
-	/// # Errors
-	/// Returns a changed binding, unavailable evidence, or metadata query error.
-	pub fn with_observation<T>(
-		&self,
-		spelling: EntrySpelling,
-		observe: impl FnOnce(&EntrySnapshot, MetadataView<'_>) -> Result<T, ObservationError>,
-	) -> Result<(EntrySnapshot, T), EntrySnapshotError> {
-		let (directory, name) = self.location();
-		let held = self.handle().as_fd();
-		with_snapshot(
-			held,
-			|| sample_entry(directory, name, held, *self.identity(), spelling),
-			observe,
-		)
 	}
 }
 
