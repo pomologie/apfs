@@ -1,8 +1,8 @@
-"""Regression tests for the Rust entry point source check."""
+"""Regression tests for the Rust source checks."""
 
 import unittest
 
-from check_rust_roots import first_violation
+from check_rust_roots import first_violation, source_length_violation
 
 
 class RustRootTests(unittest.TestCase):
@@ -71,6 +71,13 @@ pub(in crate::scope) use api::Path;
         for attribute in attributes:
             with self.subTest(attribute=attribute):
                 self.assertIsNotNone(first_violation(f'{attribute}\nmod api;'))
+
+    def test_measures_physical_lines_with_or_without_a_final_newline(self):
+        self.assertIsNone(source_length_violation(''))
+        self.assertIsNone(source_length_violation('// owned source\n' * 500))
+        self.assertIsNone(source_length_violation('// owned source\n' * 499 + '// final line'))
+        self.assertEqual(source_length_violation('// owned source\n' * 501), 501)
+        self.assertEqual(source_length_violation('// owned source\n' * 500 + '// final line'), 501)
 
 
 if __name__ == '__main__':

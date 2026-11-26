@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep Rust library and module entry points structural."""
+"""Keep Rust entry points structural and source files within the line limit."""
 
 import pathlib
 import re
@@ -7,6 +7,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT_NAMES = {'lib.rs', 'mod.rs'}
+MAX_SOURCE_LINES = 500
 TOKEN = re.compile(
     r'\s+|//[^\n]*|/\*|(?:br|cr|r)(?P<hashes>\#*)".*?"(?P=hashes)'
     r'|(?:b|c)?"(?:\\.|[^"\\])*"|b?\'(?:\\.|[^\'\\\n])\''
@@ -129,21 +131,39 @@ def first_violation(source):
     return None
 
 
+def source_length_violation(source):
+    """Return the physical line count if it exceeds the source file limit."""
+    lines = source.count('\n') + bool(source and not source.endswith('\n'))
+    return lines if lines > MAX_SOURCE_LINES else None
+
+
 def main():
     paths = subprocess.check_output(
         ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--',
-         ':(glob)**/lib.rs', ':(glob)**/mod.rs'],
+         '*.rs'],
         cwd=ROOT,
     ).decode().split('\0')
     errors = []
     checked = 0
+    sources = 0
     for name in sorted(set(filter(None, paths))):
         path = ROOT / name
         if not path.is_file():
             continue
+        sources += 1
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, ValueError) as error:
+            errors.append(f'{name}: {error}')
+            continue
+        lines = source_length_violation(source)
+        if lines is not None:
+            errors.append(f'{name}: {lines} lines exceed the {MAX_SOURCE_LINES}-line limit')
+        if path.name not in ROOT_NAMES:
+            continue
         checked += 1
         try:
-            violation = first_violation(path.read_text(encoding='utf-8'))
+            violation = first_violation(source)
         except ValueError as error:
             errors.append(f'{name}: {error}')
             continue
@@ -153,6 +173,7 @@ def main():
     if errors:
         sys.exit('\n'.join(errors))
     print(f'Checked {checked} Rust library and module entry points')
+    print(f'Checked {sources} Rust files against the {MAX_SOURCE_LINES}-line limit')
 
 
 if __name__ == '__main__':
