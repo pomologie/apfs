@@ -58,6 +58,17 @@ impl Fixture {
 			&self.identity,
 		)
 	}
+
+	fn attempt(&self) -> RenameAttempt<'_> {
+		attempt_exclusive_rename(
+			&self.source,
+			&self.stage_name,
+			&self.destination,
+			&self.target_name,
+			&self.held,
+			&self.identity,
+		)
+	}
 }
 
 #[test]
@@ -106,6 +117,10 @@ fn refuses_a_rebound_stage_name_before_rename() {
 		fixture.rename(),
 		RenameOutcome::NotAttempted(RenameRejection::SourceName(_))
 	));
+	assert!(matches!(
+		fixture.attempt(),
+		RenameAttempt::NotAttempted(RenameRejection::SourceName(_))
+	));
 	assert_eq!(fs::read(stage).unwrap(), INCUMBENT_CONTENT);
 	assert_eq!(fs::read(former_stage).unwrap(), STAGE_CONTENT);
 	assert!(matches!(
@@ -120,6 +135,7 @@ fn occupied_public_names_and_case_aliases_are_conflicts() {
 	let target = fixture.root().join("destination/target");
 	fs::write(&target, INCUMBENT_CONTENT).unwrap();
 	assert!(matches!(fixture.rename(), RenameOutcome::Conflict));
+	assert!(matches!(fixture.attempt(), RenameAttempt::Conflict));
 	assert_eq!(fs::read(&target).unwrap(), INCUMBENT_CONTENT);
 	assert_eq!(
 		fs::read(fixture.root().join("source/stage")).unwrap(),
@@ -183,28 +199,49 @@ fn native_flags_refuse_a_late_symlink_without_touching_its_referent() {
 #[test]
 fn rename_status_preserves_uncertainty_and_incomplete_postconditions() {
 	let fixture = Fixture::new();
-	let conflict = classify_rename(Err(Errno::EXIST), || panic!("unexpected observation"));
-	assert!(matches!(conflict, RenameOutcome::Conflict));
-	let uncertain = classify_rename(Err(Errno::IO), || panic!("unexpected observation"));
+	let conflict = classify_rename(Err(Errno::EXIST), || panic!("unexpected rename success"));
+	assert!(matches!(conflict, RenameAttempt::Conflict));
+	let uncertain = classify_rename(Err(Errno::IO), || panic!("unexpected rename success"));
 	assert!(
-		matches!(uncertain, RenameOutcome::Uncertain(error) if error.raw_os_error() == Some(libc::EIO))
+		matches!(uncertain, RenameAttempt::Uncertain(error) if error.raw_os_error() == Some(libc::EIO))
 	);
 
-	let incomplete = classify_rename(Ok(()), || {
-		check_evidence(
-			&fixture.identity,
-			Ok(()),
-			inventory(&fixture.source, &fixture.stage_name),
-			inventory(&fixture.destination, &fixture.target_name),
-		)
-	});
+	let RenameAttempt::Renamed(renamed) = fixture.attempt() else {
+		panic!("expected successful exclusive rename");
+	};
+	fs::write(fixture.root().join("source/stage"), INCUMBENT_CONTENT).unwrap();
+	let barriers = sync_directories(&fixture.source, &fixture.destination);
+	barriers.source.unwrap();
+	barriers.destination.unwrap();
+	let incomplete = renamed.observe();
 	assert!(matches!(
 		incomplete,
-		RenameOutcome::Renamed(RenameEvidence::Incomplete {
+		RenameEvidence::Incomplete {
 			held: Ok(()),
 			former_source: EntryObservation::Present(identity),
-			destination: EntryObservation::Absent,
-		}) if identity == fixture.identity
+			destination: EntryObservation::Present(target),
+		} if identity != fixture.identity && target == fixture.identity
+	));
+}
+
+#[test]
+fn same_directory_promotion_uses_one_barrier_before_observing() {
+	let fixture = Fixture::new();
+	let attempt = attempt_exclusive_rename(
+		&fixture.source,
+		&fixture.stage_name,
+		&fixture.source,
+		&fixture.target_name,
+		&fixture.held,
+		&fixture.identity,
+	);
+	let RenameAttempt::Renamed(renamed) = attempt else {
+		panic!("unexpected promotion outcome: {attempt:?}");
+	};
+	sync_directory(&fixture.source).unwrap();
+	assert!(matches!(
+		renamed.observe(),
+		RenameEvidence::Confirmed { target } if target == fixture.identity
 	));
 }
 

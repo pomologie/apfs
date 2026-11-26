@@ -1,6 +1,9 @@
 //! Namespace observations, exclusive rename, and directory barriers.
 
-use std::{error, fmt, io, os::fd::AsFd};
+use std::{
+	error, fmt, io,
+	os::fd::{AsFd, BorrowedFd},
+};
 
 use rustix::{
 	fs::{self, AtFlags, RenameFlags},
@@ -142,6 +145,83 @@ impl error::Error for RenameRejection {
 	}
 }
 
+/// The result of attempting one kernel no-clobber rename.
+#[derive(Debug)]
+#[must_use]
+#[non_exhaustive]
+pub enum RenameAttempt<'binding> {
+	/// Source or held identity checks refused the operation before the call.
+	NotAttempted(RenameRejection),
+	/// The kernel reported that the destination already exists.
+	Conflict,
+	/// The rename returned an error and its effect requires reconciliation.
+	Uncertain(io::Error),
+	/// The kernel reported success. Barriers and observations are still separate.
+	Renamed(RenamedEntry<'binding>),
+}
+
+/// A successful rename call with the original descriptor and name bindings.
+#[derive(Debug)]
+#[must_use]
+pub struct RenamedEntry<'binding> {
+	source: &'binding Directory,
+	source_name: &'binding EntryName,
+	destination: &'binding Directory,
+	destination_name: &'binding EntryName,
+	held: BorrowedFd<'binding>,
+	expected: &'binding ObjectIdentity,
+}
+
+impl RenamedEntry<'_> {
+	/// Sample the held identity, former-name absence, and destination identity.
+	///
+	/// To collect post-barrier evidence, call this after attempting the required
+	/// directory barriers. Callers may also sample their own metadata and lease
+	/// evidence after those barriers.
+	pub fn observe(&self) -> RenameEvidence {
+		check_evidence(
+			self.expected,
+			self.expected.revalidate_held(self.held),
+			inventory(self.source, self.source_name),
+			inventory(self.destination, self.destination_name),
+		)
+	}
+}
+
+/// Revalidate the source binding and attempt one Darwin exclusive no-follow rename.
+///
+/// The kernel makes the destination occupancy decision. This operation returns
+/// directly after the call and leaves directory synchronization and later
+/// observations to the caller. For a cross-directory transition, use
+/// [`sync_directories`] to retain both barrier results, then call
+/// [`RenamedEntry::observe`]. For a same-directory promotion, synchronize that
+/// directory once with [`sync_directory`].
+///
+/// The caller owns durable intent, capability and materialization checks, and
+/// authorization. Protect the source binding throughout with cooperating-writer
+/// leases. Preserve uncertain results for reconciliation before further mutation.
+pub fn attempt_exclusive_rename<'binding>(
+	source: &'binding Directory,
+	source_name: &'binding EntryName,
+	destination: &'binding Directory,
+	destination_name: &'binding EntryName,
+	held: &'binding impl AsFd,
+	expected: &'binding ObjectIdentity,
+) -> RenameAttempt<'binding> {
+	let held = held.as_fd();
+	if let Err(rejection) = validate_rename_source(source, source_name, held, expected) {
+		return RenameAttempt::NotAttempted(rejection);
+	}
+	rename_once(
+		source,
+		source_name,
+		destination,
+		destination_name,
+		held,
+		expected,
+	)
+}
+
 /// The result of an exclusive name transition.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -190,11 +270,9 @@ pub fn exclusive_rename(
 	held: impl AsFd,
 	expected: &ObjectIdentity,
 ) -> RenameOutcome {
-	if let Err(error) = expected.revalidate_held(held.as_fd()) {
-		return RenameOutcome::NotAttempted(RenameRejection::HeldObject(error));
-	}
-	if let Err(error) = expected.revalidate_named(source, source_name) {
-		return RenameOutcome::NotAttempted(RenameRejection::SourceName(error));
+	let held = held.as_fd();
+	if let Err(rejection) = validate_rename_source(source, source_name, held, expected) {
+		return RenameOutcome::NotAttempted(rejection);
 	}
 	match fs::statat(
 		destination,
@@ -208,14 +286,51 @@ pub fn exclusive_rename(
 		}
 	}
 
+	match rename_once(
+		source,
+		source_name,
+		destination,
+		destination_name,
+		held,
+		expected,
+	) {
+		RenameAttempt::NotAttempted(rejection) => RenameOutcome::NotAttempted(rejection),
+		RenameAttempt::Conflict => RenameOutcome::Conflict,
+		RenameAttempt::Uncertain(error) => RenameOutcome::Uncertain(error),
+		RenameAttempt::Renamed(entry) => RenameOutcome::Renamed(entry.observe()),
+	}
+}
+
+fn validate_rename_source(
+	source: &Directory,
+	source_name: &EntryName,
+	held: BorrowedFd<'_>,
+	expected: &ObjectIdentity,
+) -> Result<(), RenameRejection> {
+	expected
+		.revalidate_held(held)
+		.map_err(RenameRejection::HeldObject)?;
+	expected
+		.revalidate_named(source, source_name)
+		.map_err(RenameRejection::SourceName)
+}
+
+fn rename_once<'binding>(
+	source: &'binding Directory,
+	source_name: &'binding EntryName,
+	destination: &'binding Directory,
+	destination_name: &'binding EntryName,
+	held: BorrowedFd<'binding>,
+	expected: &'binding ObjectIdentity,
+) -> RenameAttempt<'binding> {
 	let result = rename_native(source, source_name, destination, destination_name);
-	classify_rename(result, || {
-		check_evidence(
-			expected,
-			expected.revalidate_held(held.as_fd()),
-			inventory(source, source_name),
-			inventory(destination, destination_name),
-		)
+	classify_rename(result, || RenamedEntry {
+		source,
+		source_name,
+		destination,
+		destination_name,
+		held,
+		expected,
 	})
 }
 
@@ -234,14 +349,14 @@ fn rename_native(
 	)
 }
 
-fn classify_rename(
+fn classify_rename<'binding>(
 	result: rustix::io::Result<()>,
-	observe: impl FnOnce() -> RenameEvidence,
-) -> RenameOutcome {
+	renamed_entry: impl FnOnce() -> RenamedEntry<'binding>,
+) -> RenameAttempt<'binding> {
 	match result {
-		Ok(()) => RenameOutcome::Renamed(observe()),
-		Err(Errno::EXIST) => RenameOutcome::Conflict,
-		Err(error) => RenameOutcome::Uncertain(error.into()),
+		Ok(()) => RenameAttempt::Renamed(renamed_entry()),
+		Err(Errno::EXIST) => RenameAttempt::Conflict,
+		Err(error) => RenameAttempt::Uncertain(error.into()),
 	}
 }
 

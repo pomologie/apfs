@@ -7,7 +7,7 @@ use apfs_mounted::{
 	lease::{Lease, LeaseAttempt, LeaseMode},
 	metadata::{self, AccessModificationTimes, Timestamp},
 	publication::{
-		EntryObservation, RenameEvidence, RenameOutcome, exclusive_rename, inventory,
+		EntryObservation, RenameAttempt, RenameEvidence, attempt_exclusive_rename, inventory,
 		sync_directories,
 	},
 	source::PinnedSource,
@@ -65,7 +65,7 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 		final_times
 	);
 
-	let evidence = exclusive_rename(
+	let attempt = attempt_exclusive_rename(
 		&stage,
 		&private_name,
 		&root,
@@ -73,13 +73,17 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 		ready.event_handle(),
 		ready.identity(),
 	);
-	let RenameOutcome::Renamed(RenameEvidence::Confirmed { target }) = evidence else {
-		panic!("unexpected rename evidence: {evidence:?}");
+	let RenameAttempt::Renamed(renamed) = attempt else {
+		panic!("unexpected rename outcome: {attempt:?}");
 	};
-	assert_eq!(&target, ready.identity());
 	let barriers = sync_directories(&stage, &root);
 	barriers.source.unwrap();
 	barriers.destination.unwrap();
+	let evidence = renamed.observe();
+	let RenameEvidence::Confirmed { target } = evidence else {
+		panic!("unexpected rename evidence: {evidence:?}");
+	};
+	assert_eq!(&target, ready.identity());
 	assert!(matches!(
 		inventory(&stage, &private_name),
 		EntryObservation::Absent
