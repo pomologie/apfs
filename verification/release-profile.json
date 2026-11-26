@@ -46,6 +46,20 @@
         "uniform_words": [0, 1, 4294967294, 4294967295]
       }
     },
+    "format-native-geometry-differential": {
+      "obligation": "A-V01",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-native-geometry.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"block_bytes": 4096, "source_bytes": 67108864},
+      "geometry_cases": {
+        "ledger_sha256": "e198963bf2332557c703fb73c2b8ec0976fff3e9d20e24f96cacf86442f55845",
+        "rows_sha256": "2c2e81408a6a65e92d9d66d248d70f93f0379752046e7bff32102c6c4bcefe7b",
+        "rows": {"nxsb": 3, "area": 6, "map": 2, "mapping": 6}
+      }
+    },
     "bootstrap-properties": {
       "obligation": "A-V01",
       "method": "property",

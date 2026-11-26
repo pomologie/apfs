@@ -11,6 +11,7 @@ import unittest
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
     verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
+    verify_native_geometry,
 )
 
 
@@ -494,6 +495,37 @@ APFS native checkpoints replay completed
             with self.subTest(change=new), self.assertRaisesRegex(EvidenceError, error):
                 self.set_transcript(NATIVE_TRANSCRIPT.replace(old, new))
                 self.check([self.record], NATIVE_PROFILE)
+
+
+class NativeGeometryTranscriptTests(unittest.TestCase):
+    def test_requires_actual_geometry_rows_matching_the_comparison_digest(self):
+        rows = [
+            "APFS native geometry nxsb 0 2 4096 16384 67108864 199 2",
+            "APFS native geometry area 0 data 9 160 2 4 6 36864 692224",
+            "APFS native geometry map 3 2 1 1",
+            "APFS native geometry mapping 3 0 2147483653 0 4096 0 1024 11 45056 49152",
+        ]
+        digest = hashlib.sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest()
+        ledger = "a" * 64
+        transcript = "\n".join([
+            "rustc 1.99.1 (test)", *rows,
+            f"APFS native geometry ledger {ledger}",
+            f"APFS native geometry comparison 1 1 1 1 {digest}",
+            "APFS native geometry differential completed",
+        ])
+        cases = {"ledger_sha256": ledger, "rows_sha256": digest,
+                 "rows": {"nxsb": 1, "area": 1, "map": 1, "mapping": 1}}
+        versions = {"rustc": "1.99.1"}
+        verify_native_geometry(transcript, cases, versions)
+        for old, replacement, message in [
+            (rows[0], "", "row counts"),
+            (rows[1], rows[1] + "\n" + rows[1], "row counts"),
+            ("45056 49152", "45056 49151", "independent comparison"),
+            (ledger, "b" * 64, "ledger or comparison"),
+            ("differential completed", "differential interrupted", "did not complete"),
+        ]:
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, message):
+                verify_native_geometry(transcript.replace(old, replacement), cases, versions)
 
 
 if __name__ == "__main__":

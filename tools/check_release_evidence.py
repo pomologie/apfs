@@ -11,7 +11,7 @@ import sys
 
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
-    verify_checksum_differential,
+    NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_tlc,
 )
 
@@ -125,6 +125,9 @@ def verify_method_policy(name, profile):
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
     elif method == "differential":
+        if "geometry_cases" in profile:
+            verify_native_geometry_policy(name, profile)
+            return
         require(set(profile) == PROFILE_FIELDS | {"checksum_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
@@ -155,6 +158,22 @@ def verify_method_policy(name, profile):
             verify_native_bootstrap_policy(name, profile)
     else:
         raise EvidenceError(f"no transcript verifier for {name}")
+
+
+def verify_native_geometry_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"geometry_cases", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid native geometry policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"block_bytes", "source_bytes"} and all(positive_integer(value) for value in bounds.values())
+            and bounds["source_bytes"] % bounds["block_bytes"] == 0, f"invalid native geometry bounds for {name}")
+    cases = profile["geometry_cases"]
+    require(isinstance(cases, dict) and set(cases) == {"ledger_sha256", "rows_sha256", "rows"},
+            f"invalid native geometry case matrix for {name}")
+    require(all(isinstance(cases[key], str) and SHA256.fullmatch(cases[key])
+                for key in ("ledger_sha256", "rows_sha256")), f"invalid native geometry digests for {name}")
+    rows = cases["rows"]
+    require(isinstance(rows, dict) and set(rows) == set(NATIVE_GEOMETRY_GROUPS)
+            and all(positive_integer(count) for count in rows.values()), f"incomplete native geometry rows for {name}")
 
 
 def verify_checksum_policy(name, cases, bounds):
@@ -382,7 +401,13 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
-        verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
+        if "geometry_cases" in profile:
+            cases = profile["geometry_cases"]
+            require(record.get("fixture_hash") == cases["ledger_sha256"],
+                    "native geometry fixture hash does not match the acquisition ledger")
+            verify_native_geometry(transcript, cases, profile["tool_versions"])
+        else:
+            verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
     elif "locator_cases" in profile:
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:

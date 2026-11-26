@@ -2,6 +2,7 @@
 
 import re
 from collections import Counter
+from hashlib import sha256
 
 
 class EvidenceError(ValueError):
@@ -24,6 +25,9 @@ TLC_SUCCESS = "Model checking completed. No error has been found."
 TLC_WITNESS_EXIT = "APFS TLC witness exit code: 12"
 CHECKSUM_PREFIX = "APFS checksum "
 CHECKSUM_SUCCESS = "APFS checksum differential completed"
+NATIVE_GEOMETRY_PREFIX = "APFS native geometry "
+NATIVE_GEOMETRY_SUCCESS = "APFS native geometry differential completed"
+NATIVE_GEOMETRY_GROUPS = ("nxsb", "area", "map", "mapping")
 BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
 NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
@@ -128,6 +132,26 @@ def verify_checksum_differential(transcript, cases, bounds, versions):
     actual = Counter(line for line in lines[:-1] if line.startswith(CHECKSUM_PREFIX))
     expected = Counter(expected)
     require(actual == expected, "missing, duplicate, or unexpected checksum scenarios")
+
+
+def verify_native_geometry(transcript, cases, versions):
+    lines = transcript.splitlines()
+    prefix = NATIVE_GEOMETRY_PREFIX
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native geometry transcript has the wrong Rust version")
+    require(lines[-1:] == [NATIVE_GEOMETRY_SUCCESS] and lines.count(NATIVE_GEOMETRY_SUCCESS) == 1,
+            "native geometry differential run did not complete")
+    rows = [line for line in lines[:-1] if line.startswith(prefix)]
+    counts = cases["rows"]
+    totals = " ".join(str(counts[group]) for group in NATIVE_GEOMETRY_GROUPS)
+    for expected in [f"{prefix}ledger {cases['ledger_sha256']}",
+                     f"{prefix}comparison {totals} {cases['rows_sha256']}"]:
+        require(rows.count(expected) == 1, "native geometry ledger or comparison does not match policy")
+        rows.remove(expected)
+    require(Counter(line[len(prefix):].partition(" ")[0] for line in rows) == Counter(counts),
+            "native geometry row counts do not match policy")
+    digest = sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest()
+    require(digest == cases["rows_sha256"], "native geometry rows do not match the independent comparison")
 
 
 def verify_bootstrap_properties(transcript, cases, versions):
