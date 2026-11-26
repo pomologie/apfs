@@ -320,6 +320,18 @@
       ],
       "status": "planned",
       "mandatory": true
+    },
+    {
+      "id": "A-MOUNT-01",
+      "milestone": "0.1.0",
+      "owner": "docs/features/MOUNTED.md",
+      "requirement": "Reopen an existing private stage for observation under a live matching lease. Check the exact name, native identity and expected extent before payload access and retain the binding through bounded positioned reads, metadata queries and EOF confirmation.",
+      "source_ids": [],
+      "acceptance_tests": [
+        "A-MOUNT-01-T01"
+      ],
+      "status": "pass",
+      "mandatory": false
     }
   ]
 }

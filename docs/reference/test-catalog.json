@@ -613,6 +613,18 @@
       "expected": "Hosted features remain available on supported hosts; kernel graph excludes hosted-only dependencies and explicitly labels unsupported combinations.",
       "status": "planned",
       "evidence": null
+    },
+    {
+      "id": "A-MOUNT-01-T01",
+      "requirement_ids": [
+        "A-MOUNT-01"
+      ],
+      "milestone": "0.1.0",
+      "scenario": "Reopen a synthetic private entry under a fresh lease. Exercise bounded data and metadata access and reject mismatched lease, extent, policy, spelling, changed metadata or substituted inode.",
+      "oracle": "Native APFS on macOS 14.7.2 (23H311), arm64, under isolated temporary directories",
+      "expected": "Exact bytes and EOF from the read-only descriptor. Typed failure for refused or changed bindings.",
+      "status": "pass",
+      "evidence": "crates/platform/apfs-mounted/tests/private_recovery.rs"
     }
   ]
 }
