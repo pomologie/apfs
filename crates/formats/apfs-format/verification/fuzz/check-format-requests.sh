@@ -26,8 +26,9 @@ for i, record in enumerate(windows + ranges + projected):
 PY
 
 toolchain=nightly-2026-11-04
-toolchain_bin=$(dirname -- "$(rustup which --toolchain "$toolchain" rustc)")
-export PATH="$toolchain_bin:$PATH"
+compiler=$(rustup which --toolchain "$toolchain" rustc)
+toolchain_bin=$(dirname -- "$compiler")
+export PATH="$toolchain_bin:$PATH" RUSTC="$compiler"
 rustc --version
 cargo fuzz --version
 cargo tree --locked --manifest-path "$fuzz_dir/Cargo.toml" --depth 1 --prefix none
