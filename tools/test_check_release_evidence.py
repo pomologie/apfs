@@ -22,6 +22,25 @@ VERIFICATION:- SUCCESSFUL
 Manual Harness Summary:
 Complete - 1 successfully verified harnesses, 0 failures, 1 total.
 """
+TLC_PROFILE = "checkpoint-tlc"
+TLC_MODEL = "CheckpointSelection"
+TLC_RUNTIME = f"""TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 0 and seed 0 with 1 worker on 8 cores (Java 21.0.8 aarch64).
+Semantic processing of module {TLC_MODEL}
+"""
+TLC_TRANSCRIPT = f"""APFS TLC baseline
+{TLC_RUNTIME}Finished computing initial states: 3200 distinct states generated at 2026-11-26.
+Checking temporal properties for the complete state space with 13196 total distinct states at (2026-11-26)
+Finished checking temporal properties in 00s at 2026-11-26
+Model checking completed. No error has been found.
+16396 states generated, 13196 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 6.
+APFS TLC negative witness
+{TLC_RUNTIME}Error: Invariant SelectionMatchesEvidence is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+APFS TLC witness exit code: 12
+"""
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -76,6 +95,28 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def check(self, records, requested_profile=None):
         self.bundle.write_text(json.dumps(records), encoding="utf-8")
         return validate(self.root, self.bundle, requested_profile)
+
+    def set_tlc_profile(self):
+        profile = {
+            "obligation": "A-V02", "method": "tlc", "features": [],
+            "command": ["bash", "crates/container/apfs-container/verification/models/check-evidence.sh"],
+            "tool_versions": {"tlc": "2.19", "java": "21.0.8"},
+            "bounds": {"candidate_xids": 3, "ring_slots": 2, "workers": 1, "seed": 0, "fingerprint_index": 0},
+            "model": {"name": TLC_MODEL, "initial_states": 3200, "states": 16396, "distinct_states": 13196,
+                      "depth": 6, "violated_invariant": "SelectionMatchesEvidence"},
+        }
+        self.policy["profiles"][TLC_PROFILE] = profile
+        self.registry["methods"]["tlc"] = "bounded model"
+        self.registry["obligations"].append({
+            "id": "A-V02", "activation": "0.1.0", "mandatory_when_activated": True, "required_methods": ["tlc"],
+        })
+        self.commit_policy()
+        self.record.update(
+            commit=self.commit, source_hash=self.digest, profile=TLC_PROFILE, obligation_id=profile["obligation"],
+            method="tlc", command=profile["command"], tool_versions=profile["tool_versions"], bounds=profile["bounds"],
+            seed="0", proof={"theorem": TLC_PROFILE, "states": 16396, "distinct_states": 13196},
+        )
+        self.set_transcript(TLC_TRANSCRIPT)
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
@@ -172,6 +213,30 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.set_transcript(TRANSCRIPT.replace(old, replacement))
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 self.check([self.record])
+
+    def test_tlc_accepts_the_bounded_graph_and_requires_proof_counts_and_seed(self):
+        self.set_tlc_profile()
+        self.assertEqual(self.check([self.record], TLC_PROFILE), (1, "0.1.0", self.commit))
+        with self.assertRaisesRegex(EvidenceError, "missing evidence for format-kani"):
+            self.check([self.record])
+        for changes, expected in (({"seed": "1"}, "TLC seed"), ({"proof": {"theorem": TLC_PROFILE}}, "metadata")):
+            with self.subTest(changes=changes), self.assertRaisesRegex(EvidenceError, expected):
+                self.check([self.record | changes], TLC_PROFILE)
+
+    def test_tlc_rejects_incomplete_or_inconsistent_baseline_and_counterexample(self):
+        self.set_tlc_profile()
+        cases = [("13196 distinct states found", "1 distinct states found", "bounded state graph"),
+                 ("0 states left on queue", "1 states left on queue", "bounded state graph"),
+                 ("Finished checking temporal properties", "Skipped temporal properties", "temporal property check"),
+                 ("with fp 0 and seed 0", "with fp 3 and seed 0", "TLC schedule"),
+                 ("TLC2 Version 2.19", "TLC2 Version 2.20", "wrong TLC version"),
+                 ("APFS TLC negative witness", "", "negative witness is missing"),
+                 ("Invariant SelectionMatchesEvidence", "Invariant TypeOK", "expected counterexample"),
+                 ("APFS TLC witness exit code: 12", "APFS TLC witness exit code: 0", "expected counterexample")]
+        for old, replacement, expected in cases:
+            self.set_transcript(TLC_TRANSCRIPT.replace(old, replacement))
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                self.check([self.record], TLC_PROFILE)
 
 
 if __name__ == "__main__":

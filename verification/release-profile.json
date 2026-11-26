@@ -23,6 +23,22 @@
         "superblock::verification::nxsb_checkpoint_area_matches_wire_bounds": 7,
         "superblock::verification::nxsb_geometry_matches_widened_model": 30
       }
+    },
+    "checkpoint-tlc": {
+      "obligation": "A-V02",
+      "method": "tlc",
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/models/check-evidence.sh"],
+      "tool_versions": {"tlc": "2.19", "java": "21.0.8"},
+      "bounds": {"candidate_xids": 3, "ring_slots": 2, "workers": 1, "seed": 0, "fingerprint_index": 0},
+      "model": {
+        "name": "CheckpointSelection",
+        "initial_states": 3200,
+        "states": 16396,
+        "distinct_states": 13196,
+        "depth": 6,
+        "violated_invariant": "SelectionMatchesEvidence"
+      }
     }
   }
 }

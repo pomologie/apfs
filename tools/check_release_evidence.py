@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 
-from apfs_evidence_transcript import EvidenceError, require, verify_kani
+from apfs_evidence_transcript import EvidenceError, require, verify_kani, verify_tlc
 
 
 POLICY_PATH = "verification/release-profile.json"
@@ -23,8 +23,9 @@ RECORD_FIELDS = {
     "bounds", "artifacts", "runner", "duration_ms", "exit_code",
 }
 OPTIONAL_RECORD_FIELDS = {"seed", "trace_hash", "fixture_hash", "proof"}
-PROFILE_FIELDS = {"obligation", "method", "features", "command", "tool_versions", "bounds", "harnesses"}
-METHOD_VALIDATORS = {"kani": verify_kani}
+PROFILE_FIELDS = {"obligation", "method", "features", "command", "tool_versions", "bounds"}
+TLC_MODEL_FIELDS = {"name", "initial_states", "states", "distinct_states", "depth", "violated_invariant"}
+TLC_BOUND_FIELDS = {"candidate_xids", "ring_slots", "workers", "seed", "fingerprint_index"}
 
 
 def unique_object(pairs):
@@ -86,6 +87,36 @@ def positive_integer(value):
     return type(value) is int and value > 0
 
 
+def verify_method_policy(name, profile):
+    method = profile["method"]
+    bounds = profile["bounds"]
+    versions = profile["tool_versions"]
+    require(text_mapping(versions), f"invalid tool versions for {name}")
+    require(isinstance(bounds, dict) and bounds, f"missing bounds for {name}")
+    if method == "kani":
+        require(set(profile) == PROFILE_FIELDS | {"harnesses"} and {"kani", "cbmc"} <= versions.keys(),
+                f"invalid Kani policy for {name}")
+        harnesses = profile["harnesses"]
+        require(isinstance(harnesses, dict) and harnesses and all(
+            text(harness) and positive_integer(count) for harness, count in harnesses.items()
+        ), f"no non-vacuous harnesses for {name}")
+    elif method == "tlc":
+        require(set(profile) == PROFILE_FIELDS | {"model"} and {"tlc", "java"} <= versions.keys(),
+                f"invalid TLC policy for {name}")
+        require(set(bounds) == TLC_BOUND_FIELDS and all(positive_integer(bounds[key])
+                for key in ("candidate_xids", "ring_slots", "workers"))
+                and all(type(bounds[key]) is int and bounds[key] >= 0 for key in ("seed", "fingerprint_index")),
+                f"invalid TLC bounds for {name}")
+        model = profile["model"]
+        require(isinstance(model, dict) and set(model) == TLC_MODEL_FIELDS and text(model["name"])
+                and text(model["violated_invariant"]) and all(positive_integer(model[key])
+                for key in ("initial_states", "distinct_states", "states", "depth"))
+                and model["initial_states"] < model["distinct_states"] <= model["states"],
+                f"no non-vacuous TLC model for {name}")
+    else:
+        raise EvidenceError(f"no transcript verifier for {name}")
+
+
 def required_matrix(policy, registry, requested_profile):
     require(isinstance(policy, dict) and set(policy) == {"schema_version", "milestone", "profiles"}
             and type(policy["schema_version"]) is int and policy["schema_version"] == SCHEMA_VERSION,
@@ -116,20 +147,13 @@ def required_matrix(policy, registry, requested_profile):
     require(isinstance(profiles, dict), "invalid release policy profiles")
     covered = set()
     for name, profile in profiles.items():
-        require(text(name) and isinstance(profile, dict) and set(profile) == PROFILE_FIELDS,
+        require(text(name) and isinstance(profile, dict) and PROFILE_FIELDS <= profile.keys(),
                 f"invalid policy profile {name}")
         obligation, method = profile["obligation"], profile["method"]
         require(method in active.get(obligation, ()), f"inactive obligation or method in {name}")
-        require(method in METHOD_VALIDATORS, f"no transcript verifier for {name}")
         require(text_list(profile["features"]) and len(set(profile["features"])) == len(profile["features"])
                 and text_list(profile["command"]) and profile["command"], f"invalid invocation for {name}")
-        require(text_mapping(profile["tool_versions"]) and {"kani", "cbmc"} <= profile["tool_versions"].keys(),
-                f"unpinned tool versions for {name}")
-        require(isinstance(profile["bounds"], dict) and profile["bounds"], f"missing bounds for {name}")
-        harnesses = profile["harnesses"]
-        require(isinstance(harnesses, dict) and harnesses and all(
-            text(harness) and positive_integer(count) for harness, count in harnesses.items()
-        ), f"no non-vacuous harnesses for {name}")
+        verify_method_policy(name, profile)
         covered.add((obligation, method))
 
     if requested_profile is not None:
@@ -188,10 +212,17 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             "incomplete invocation provenance")
     require(json.dumps(record["bounds"], sort_keys=True) == json.dumps(profile["bounds"], sort_keys=True),
             "proof bounds do not match profile")
-    proof = record.get("proof")
-    require(isinstance(proof, dict) and proof == {"theorem": name}, "Kani theorem does not match profile")
+    proof = {"theorem": name}
+    if profile["method"] == "tlc":
+        model = profile["model"]
+        proof.update(states=model["states"], distinct_states=model["distinct_states"])
+        require(record.get("seed") == str(profile["bounds"]["seed"]), "TLC seed does not match profile")
+    require(record.get("proof") == proof, "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
-    METHOD_VALIDATORS[record["method"]](transcript, profile["harnesses"], profile["tool_versions"])
+    if profile["method"] == "kani":
+        verify_kani(transcript, profile["harnesses"], profile["tool_versions"])
+    else:
+        verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
 
 
 def validate(root, bundle, requested_profile):
