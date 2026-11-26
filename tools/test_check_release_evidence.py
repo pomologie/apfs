@@ -80,6 +80,30 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
 
+    def test_archive_digest_ignores_worktree_line_ending_configuration(self):
+        (self.root / ".gitattributes").write_text("*.txt text\n", encoding="utf-8")
+        (self.root / "fixture.txt").write_bytes(b"first\nsecond\n")
+        self.git("add", ".gitattributes", "fixture.txt")
+        self.commit_policy()
+        expected = self.digest
+        self.git("config", "core.autocrlf", "true")
+        self.git("config", "core.eol", "crlf")
+        unpinned = subprocess.check_output(
+            ["git", "-C", self.root, "-c", "tar.umask=0002", "archive", "--format=tar", self.commit]
+        )
+        self.assertNotEqual(hashlib.sha256(unpinned).hexdigest(), expected)
+        self.assertEqual(archive_hash(self.root, self.commit), expected)
+
+    def test_future_and_unscheduled_methods_do_not_activate_in_initial_release(self):
+        for identifier, activation in (("A-V02", "0.8+"), ("A-V03", "later")):
+            self.registry["obligations"].append({
+                "id": identifier, "activation": activation, "mandatory_when_activated": True,
+                "required_methods": ["native"],
+            })
+        self.commit_policy()
+        self.record.update(commit=self.commit, source_hash=self.digest)
+        self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
+
     def test_missing_duplicate_wrong_profile_and_incompatible_method(self):
         cases = [([], "missing evidence"), ([self.record, self.record], "duplicate evidence"),
                  ([self.record | {"profile": "other"}], "unexpected or duplicate evidence"),

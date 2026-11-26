@@ -15,7 +15,7 @@ from apfs_evidence_transcript import EvidenceError, require, verify_kani
 POLICY_PATH = "verification/release-profile.json"
 REGISTRY_PATH = "verification/obligations.json"
 SCHEMA_VERSION = 1
-STRETCH = "stretch"
+UNSCHEDULED = {"later", "stretch"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 RECORD_FIELDS = {
     "schema_version", "obligation_id", "method", "status", "commit", "dirty",
@@ -50,7 +50,8 @@ def git_output(root, *args):
 
 
 def archive_hash(root, commit):
-    args = ["git", "-C", str(root), "-c", "tar.umask=0002", "archive", "--format=tar", commit]
+    args = ["git", "-C", str(root), "-c", "tar.umask=0002", "-c", "core.autocrlf=false",
+            "-c", "core.eol=lf", "archive", "--format=tar", commit]
     with subprocess.Popen(args, stdout=subprocess.PIPE) as process:
         digest = hashlib.file_digest(process.stdout, "sha256").hexdigest()
         require(process.wait() == 0, "could not archive the candidate")
@@ -61,6 +62,12 @@ def version(value):
     require(isinstance(value, str) and re.fullmatch(r"\d+\.\d+\.\d+", value),
             "invalid milestone version")
     return tuple(map(int, value.split(".")))
+
+
+def activation_version(value):
+    if isinstance(value, str) and re.fullmatch(r"\d+\.\d+\+", value):
+        return version(value[:-1] + ".0")
+    return version(value)
 
 
 def text(value):
@@ -97,7 +104,7 @@ def required_matrix(policy, registry, requested_profile):
         activation = obligation["activation"]
         mandatory = obligation["mandatory_when_activated"]
         require(type(mandatory) is bool, f"invalid activation flag for {identifier}")
-        if mandatory and activation != STRETCH and version(activation) <= milestone:
+        if mandatory and activation not in UNSCHEDULED and activation_version(activation) <= milestone:
             methods = obligation["required_methods"]
             require(text_list(methods) and methods and len(set(methods)) == len(methods)
                     and set(methods) <= registry["methods"].keys(),
