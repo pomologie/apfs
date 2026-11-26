@@ -41,6 +41,8 @@ The NXSB geometry subset and native-derived bootstrap rejection tests passed for
 **Requirement links:** A-CONT-02.\
 **Evidence:** tlc, property, fuzz, differential, native; status planned.
 
+The bounded TLC model and the Rust comparison passed. The missing-map counterexample was reproduced in the altered model and replayed against the Rust fixture. Fuzzing and native differential evidence for damaged and wrapped rings remain open. [Checkpoint evidence](../../crates/container/apfs-container/verification/README.md#a-v02-checkpoint-selection)
+
 ### A-V03 — object mapping
 **Target:** apfs-container / object-map resolution.\
 **Property:** Virtual object resolves to visible version at requested XID (or qualified tombstone); physical/ephemeral/virtual identities never mixed; returned physical range bounded.\
