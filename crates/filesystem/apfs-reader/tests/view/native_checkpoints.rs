@@ -12,6 +12,7 @@ const DESCRIPTOR_BLOCKS: [u64; 4] = [2, 4, 6, 8];
 const MAPPED_OBJECTS: [u64; 4] = [1024, 1025, 1027, 1029];
 
 struct Snapshot {
+	name: &'static str,
 	bytes: &'static [u8],
 	selected_xid: TransactionId,
 	descriptor: BlockAddress,
@@ -27,6 +28,7 @@ fn native_selection_agrees_with_apples_checker_across_descriptor_slot_reuse() {
 	// image and XID 6 after a native read-write attach and file creation.
 	let snapshots = [
 		Snapshot {
+			name: "sonoma-payload-blocks",
 			bytes: include_bytes!("../fixtures/sonoma-payload-blocks.bin"),
 			selected_xid: TransactionId(4),
 			descriptor: BlockAddress(8),
@@ -36,6 +38,7 @@ fn native_selection_agrees_with_apples_checker_across_descriptor_slot_reuse() {
 			first_data_block: 19,
 		},
 		Snapshot {
+			name: "sonoma-fragmented-blocks",
 			bytes: include_bytes!("../fixtures/sonoma-fragmented-blocks.bin"),
 			selected_xid: TransactionId(6),
 			descriptor: BlockAddress(4),
@@ -46,12 +49,12 @@ fn native_selection_agrees_with_apples_checker_across_descriptor_slot_reuse() {
 		},
 	];
 
+	println!();
 	for sample in snapshots {
 		let fixture = Fixture::from_packed_blocks(sample.bytes);
-		for (address, xid) in DESCRIPTOR_BLOCKS.into_iter().zip(sample.descriptor_xids) {
-			let header = Header::decode(&fixture.0[&address]).unwrap();
-			assert_eq!(header.transaction, TransactionId(xid));
-		}
+		let descriptor_xids = DESCRIPTOR_BLOCKS
+			.map(|address| Header::decode(&fixture.0[&address]).unwrap().transaction.0);
+		assert_eq!(descriptor_xids, sample.descriptor_xids);
 
 		let options = OpenOptions::default();
 		let automatic = Container::open(&fixture, options).unwrap();
@@ -72,10 +75,8 @@ fn native_selection_agrees_with_apples_checker_across_descriptor_slot_reuse() {
 		assert_eq!(ring.blocks, RING_BLOCKS);
 		assert_eq!(ring.length, sample.live_slots.len() as u32);
 		assert_eq!(ring.next, sample.next_slot);
-		assert_eq!(
-			[ring.ring_index(0), ring.ring_index(1)],
-			sample.live_slots.map(Ok)
-		);
+		let live_slots = [ring.ring_index(0).unwrap(), ring.ring_index(1).unwrap()];
+		assert_eq!(live_slots, sample.live_slots);
 
 		let mappings = automatic.mappings();
 		assert_eq!(mappings.len(), MAPPED_OBJECTS.len());
@@ -87,5 +88,14 @@ fn native_selection_agrees_with_apples_checker_across_descriptor_slot_reuse() {
 			);
 			assert_eq!(mapping.size_bytes, BLOCK_BYTES as u32);
 		}
+		let payload_blocks: Vec<_> = mappings.iter().map(|mapping| mapping.physical.0).collect();
+		println!(
+			"APFS native checkpoints replay {} {} {} {} {} {live_slots:?} {descriptor_xids:?} {payload_blocks:?}",
+			sample.name,
+			automatic.superblock().object.transaction.0,
+			automatic.descriptor().0,
+			ring.blocks,
+			ring.next,
+		);
 	}
 }

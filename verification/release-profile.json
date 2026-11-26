@@ -102,6 +102,38 @@
         "fsroot_sha256": "080baefd59d8c407c3b7987f4565b3d10dc365378e9b9efe4a0dfd156befe04b"
       }
     },
+    "checkpoint-native-replay": {
+      "obligation": "A-V02",
+      "method": "native",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/filesystem/apfs-reader/verification/check-native-checkpoints.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"descriptor_ring_slots": 8, "snapshots": 2},
+      "native_checkpoints": {
+        "ledger_set_sha256": "eae222988b10329db783218283da266bee6778e2054dae90dd822847c58e280e",
+        "os_version": "14.7.2",
+        "os_build": "23H311",
+        "architecture": "arm64",
+        "oracle_version": "2236.141.1",
+        "snapshots": {
+          "sonoma-payload-blocks": {
+            "ledger_sha256": "51168c8c328c32d5cd34cc5b8279b428573437e9d460525579de77c1f3bcf903",
+            "packed_sha256": "1c696d54e4fcf76043ae898c0c92d01d3391d73a34982bc6bd93347901c188ba",
+            "raw_sha256": "972278247c99b7bdfe97cbe059c4b20fb86ea1e3ccc1465b0a38e2950a9a5011",
+            "xid": 4, "descriptor": 8, "next_slot": 0,
+            "live_slots": [6, 7], "descriptor_xids": [1, 2, 3, 4], "payload_blocks": [19, 20, 21, 22]
+          },
+          "sonoma-fragmented-blocks": {
+            "ledger_sha256": "0f077e11267e216f5c0059b780b6007ea6d9d2d9ea90fdfcfbbd9573d082bb80",
+            "packed_sha256": "ed48a68167b1cea40624a329394046b995b51b903a11719931b9bd32cf7423a3",
+            "raw_sha256": "3ffc11c371c3a4735f147b16055a1ec00ebf562b52ab34cfe00f678d4a818272",
+            "xid": 6, "descriptor": 4, "next_slot": 4,
+            "live_slots": [2, 3], "descriptor_xids": [5, 6, 3, 4], "payload_blocks": [27, 28, 29, 30]
+          }
+        }
+      }
+    },
     "checkpoint-model-properties": {
       "obligation": "A-V02",
       "method": "property",

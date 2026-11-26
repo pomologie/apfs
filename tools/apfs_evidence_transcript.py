@@ -28,6 +28,8 @@ BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
 NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
+NATIVE_CHECKPOINT_PREFIX = "APFS native checkpoints "
+NATIVE_CHECKPOINT_SUCCESS = "APFS native checkpoints replay completed"
 LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 CHECKPOINT_MODEL_PREFIX = "APFS checkpoint model "
@@ -204,3 +206,23 @@ def verify_native_bootstrap(transcript, fixture, bounds, versions):
     actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_BOOTSTRAP_PREFIX))
     require(actual == Counter(f"{NATIVE_BOOTSTRAP_PREFIX}{row}" for row in expected),
             "native bootstrap ledger, fixture, or replay facts disagree with the policy")
+
+
+def verify_native_checkpoints(transcript, fixtures, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native checkpoint transcript has the wrong Rust version")
+    require(lines[-1:] == [NATIVE_CHECKPOINT_SUCCESS] and lines.count(NATIVE_CHECKPOINT_SUCCESS) == 1,
+            "native checkpoint replay did not complete")
+    expected = [f"ledgers {fixtures['ledger_set_sha256']}"]
+    for name, snapshot in fixtures["snapshots"].items():
+        expected.extend([
+            f"fixture {name} {snapshot['ledger_sha256']} {snapshot['packed_sha256']} {snapshot['raw_sha256']}",
+            f"oracle {name} {fixtures['os_version']} {fixtures['os_build']} {fixtures['architecture']} "
+            f"{fixtures['oracle_version']} 0 {snapshot['xid']}",
+            f"replay {name} {snapshot['xid']} {snapshot['descriptor']} {bounds['descriptor_ring_slots']} "
+            f"{snapshot['next_slot']} {snapshot['live_slots']} {snapshot['descriptor_xids']} {snapshot['payload_blocks']}",
+        ])
+    actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_CHECKPOINT_PREFIX))
+    require(actual == Counter(f"{NATIVE_CHECKPOINT_PREFIX}{row}" for row in expected),
+            "native checkpoint ledgers, fixture digests, or observed selection disagree with the policy")

@@ -12,7 +12,7 @@ import sys
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     verify_checksum_differential,
-    verify_kani, verify_locator_properties, verify_native_bootstrap, verify_tlc,
+    verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_tlc,
 )
 
 
@@ -149,7 +149,10 @@ def verify_method_policy(name, profile):
                     and all(positive_integer(value) for value in row) for row in rows)
                     and len({tuple(row) for row in rows}) == len(rows), f"invalid {case} rows for {name}")
     elif method == "native":
-        verify_native_bootstrap_policy(name, profile)
+        if "native_checkpoints" in profile:
+            verify_native_checkpoint_policy(name, profile)
+        else:
+            verify_native_bootstrap_policy(name, profile)
     else:
         raise EvidenceError(f"no transcript verifier for {name}")
 
@@ -237,6 +240,35 @@ def verify_native_bootstrap_policy(name, profile):
     refusals = bounds["refused_reads"]
     require(isinstance(refusals, dict) and set(refusals) == NATIVE_BOOTSTRAP_REFUSALS
             and all(positive_integer(reads) for reads in refusals.values()), f"incomplete native refusals for {name}")
+
+
+def verify_native_checkpoint_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"native_checkpoints", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid native checkpoint policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"descriptor_ring_slots", "snapshots"}
+            and all(positive_integer(value) for value in bounds.values()), f"invalid native checkpoint bounds for {name}")
+    fixtures = profile["native_checkpoints"]
+    require(isinstance(fixtures, dict) and set(fixtures) == NATIVE_BOOTSTRAP_ID_FIELDS
+            | {"ledger_set_sha256", "snapshots"}, f"invalid native checkpoint fixture metadata for {name}")
+    require(all(text(fixtures[key]) for key in NATIVE_BOOTSTRAP_ID_FIELDS)
+            and text(fixtures["ledger_set_sha256"]) and SHA256.fullmatch(fixtures["ledger_set_sha256"]),
+            f"invalid native checkpoint provenance for {name}")
+    snapshots = fixtures["snapshots"]
+    require(isinstance(snapshots, dict) and len(snapshots) == bounds["snapshots"], f"incomplete native checkpoints for {name}")
+    hashes = {"ledger_sha256", "packed_sha256", "raw_sha256"}
+    rows = {"live_slots", "descriptor_xids", "payload_blocks"}
+    for label, snapshot in snapshots.items():
+        require(text(label) and isinstance(snapshot, dict) and set(snapshot) == hashes | rows | {"xid", "descriptor", "next_slot"},
+                f"invalid native checkpoint row for {name}")
+        require(all(text(snapshot[key]) and SHA256.fullmatch(snapshot[key]) for key in hashes)
+                and positive_integer(snapshot["xid"]) and positive_integer(snapshot["descriptor"]),
+                f"invalid native checkpoint identity for {label}")
+        require(all(isinstance(snapshot[key], list) and snapshot[key] and all(
+            type(value) is int and value >= 0 for value in snapshot[key]) for key in rows)
+            and type(snapshot["next_slot"]) is int and 0 <= snapshot["next_slot"] < bounds["descriptor_ring_slots"]
+            and all(slot < bounds["descriptor_ring_slots"] for slot in snapshot["live_slots"]),
+            f"invalid native ring slots or payload blocks for {label}")
 
 
 def required_matrix(policy, registry, requested_profile):
@@ -358,9 +390,15 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif "checkpoint_layouts" in profile:
         verify_checkpoint_layouts(transcript, profile["checkpoint_layouts"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "native":
-        require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
-                "native fixture hash does not match the acquisition ledger")
-        verify_native_bootstrap(transcript, profile["native_fixture"], profile["bounds"], profile["tool_versions"])
+        if "native_checkpoints" in profile:
+            fixtures = profile["native_checkpoints"]
+            require(record.get("fixture_hash") == fixtures["ledger_set_sha256"],
+                    "native fixture hash does not match the checkpoint acquisition ledgers")
+            verify_native_checkpoints(transcript, fixtures, profile["bounds"], profile["tool_versions"])
+        else:
+            require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
+                    "native fixture hash does not match the acquisition ledger")
+            verify_native_bootstrap(transcript, profile["native_fixture"], profile["bounds"], profile["tool_versions"])
     else:
         verify_bootstrap_properties(transcript, profile["property_cases"], profile["tool_versions"])
 

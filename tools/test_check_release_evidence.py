@@ -9,7 +9,9 @@ import tempfile
 import unittest
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
-from apfs_evidence_transcript import verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties
+from apfs_evidence_transcript import (
+    verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
+)
 
 
 PROFILE = "format-kani"
@@ -434,6 +436,36 @@ APFS checkpoint layouts completed
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_checkpoint_layouts(transcript.replace(old, replacement), matrix, bounds, versions)
+
+    def test_native_checkpoint_transcript_requires_provenance_and_replayed_slots(self):
+        fixtures = {
+            "ledger_set_sha256": "a" * 64, "os_version": "14.7.2", "os_build": "23H311",
+            "architecture": "arm64", "oracle_version": "2236.141.1", "snapshots": {
+                "sample": {"ledger_sha256": "b" * 64, "packed_sha256": "c" * 64, "raw_sha256": "d" * 64,
+                           "xid": 4, "descriptor": 8, "next_slot": 0,
+                           "live_slots": [6, 7], "descriptor_xids": [1, 2, 3, 4], "payload_blocks": [19, 20, 21, 22]},
+            },
+        }
+        bounds = {"descriptor_ring_slots": 8}
+        versions = {"rustc": "1.99.1"}
+        transcript = f"""rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS native checkpoints ledgers {'a' * 64}
+APFS native checkpoints fixture sample {'b' * 64} {'c' * 64} {'d' * 64}
+APFS native checkpoints oracle sample 14.7.2 23H311 arm64 2236.141.1 0 4
+APFS native checkpoints replay sample 4 8 8 0 [6, 7] [1, 2, 3, 4] [19, 20, 21, 22]
+APFS native checkpoints replay completed
+"""
+        verify_native_checkpoints(transcript, fixtures, bounds, versions)
+        for old, replacement, expected in (
+            ("a" * 64, "f" * 64, "disagree"),
+            ("c" * 64, "f" * 64, "disagree"),
+            ("2236.141.1 0 4", "2236.141.1 1 4", "disagree"),
+            ("[6, 7]", "[7, 0]", "disagree"),
+            ("[19, 20, 21, 22]", "[19, 20, 21, 23]", "disagree"),
+            ("replay completed", "replay interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                verify_native_checkpoints(transcript.replace(old, replacement), fixtures, bounds, versions)
 
 
     def test_native_replay_passes_as_partial_evidence(self):
