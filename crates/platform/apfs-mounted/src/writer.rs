@@ -21,6 +21,7 @@ mod barrier;
 mod error;
 mod observation;
 mod read_back;
+mod seal;
 
 #[cfg(test)]
 mod tests;
@@ -28,6 +29,7 @@ mod tests;
 pub use barrier::{BarrierError, BarrierKind, full_file_sync, sync_directory};
 pub use error::{LifecycleEffect, WriterError};
 pub use read_back::ReadBack;
+pub use seal::{MetadataCheckPhase, SealCheckPhase};
 
 use error::without_materialization;
 use observation::{Location, Snapshot};
@@ -63,17 +65,6 @@ pub enum BirthTimePolicy {
 	Preserve,
 	/// Also accept Darwin lowering the birth time to the requested modification time.
 	AllowDarwinAdjustment,
-}
-
-/// Point at which the caller checks metadata during timestamp installation.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum MetadataCheckPhase {
-	/// Before changing any timestamps.
-	BeforeUpdate,
-	/// After the timestamp update and before the full-file barrier.
-	AfterUpdate,
-	/// After the full-file barrier.
-	AfterBarrier,
 }
 
 /// Sole writable handle for one newly created private file and declared extent.
@@ -369,7 +360,7 @@ impl<'dir> ClosedFile<'dir> {
 	}
 }
 
-/// Closed, synchronized private file with its final timestamps installed.
+/// Closed, synchronized private file with its final timestamps verified.
 /// It retains a read-only descriptor and the original event-only anchor.
 #[derive(Debug)]
 pub struct MetadataReadyFile<'dir> {

@@ -390,6 +390,92 @@ fn timestamp_metadata_refusals_preserve_the_phase_of_the_effect() {
 	}
 }
 
+#[test]
+fn seal_checks_bracket_barrier_and_preserve_existing_metadata() {
+	#[derive(Debug, PartialEq, Eq)]
+	enum Event {
+		Check(SealCheckPhase),
+		Barrier,
+	}
+
+	let scratch = Scratch::new();
+	let directory = scratch.directory();
+	let name = EntryName::new(STAGE.as_bytes()).unwrap();
+	let mut writer = PrivateWriter::create(&directory, &name, 1).unwrap();
+	writer.write_next(b"a").unwrap();
+	let closed = writer.flush_and_close().unwrap();
+	let identity = *closed.identity();
+	let mut output = [0];
+	closed
+		.open_read_back()
+		.unwrap()
+		.read_exact_at(0, &mut output)
+		.unwrap();
+	assert_eq!(&output, b"a");
+	let before = closed.with_metadata(|view| view.stat()).unwrap();
+	let events = RefCell::new(Vec::new());
+	let ready = closed
+		.seal_checked_with(
+			|phase, view| {
+				events.borrow_mut().push(Event::Check(phase));
+				assert_eq!(view.stat()?, before);
+				Ok(())
+			},
+			|file| {
+				events.borrow_mut().push(Event::Barrier);
+				full_file_sync(file)
+			},
+		)
+		.unwrap();
+	assert_eq!(
+		events.into_inner(),
+		[
+			Event::Check(SealCheckPhase::BeforeBarrier),
+			Event::Barrier,
+			Event::Check(SealCheckPhase::AfterBarrier),
+		]
+	);
+	assert_eq!(*ready.identity(), identity);
+	assert_eq!(ready.times(), before.times);
+	assert_eq!(ready.with_metadata(|view| view.stat()).unwrap(), before);
+}
+
+#[test]
+fn seal_refusals_distinguish_a_successful_barrier_and_retain_metadata() {
+	for refused in [SealCheckPhase::BeforeBarrier, SealCheckPhase::AfterBarrier] {
+		let scratch = Scratch::new();
+		let directory = scratch.directory();
+		let name = EntryName::new(STAGE.as_bytes()).unwrap();
+		let closed = PrivateWriter::create(&directory, &name, 0)
+			.unwrap()
+			.flush_and_close()
+			.unwrap();
+		let before = closed.with_metadata(|view| view.stat()).unwrap();
+		let result = closed.seal_checked(|phase, _| {
+			if phase == refused {
+				return Err(WriterError::MetadataRefused(Box::new(io::Error::other(
+					METADATA_REFUSAL,
+				))));
+			}
+			Ok(())
+		});
+		let held = File::open(scratch.path(STAGE)).unwrap();
+		assert_eq!(crate::metadata::stat(&held).unwrap(), before);
+		match refused {
+			SealCheckPhase::BeforeBarrier => {
+				assert!(matches!(result, Err(WriterError::MetadataRefused(_))));
+			}
+			SealCheckPhase::AfterBarrier => {
+				assert!(matches!(
+					result,
+					Err(WriterError::BarrierPassedButUnverified(error))
+						if matches!(*error, WriterError::MetadataRefused(_))
+				));
+			}
+		}
+	}
+}
+
 fn later_times(times: AccessModificationTimes) -> AccessModificationTimes {
 	AccessModificationTimes {
 		access: times.access,

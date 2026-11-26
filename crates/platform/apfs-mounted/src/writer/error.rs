@@ -16,6 +16,7 @@ pub enum LifecycleEffect {
 	Written { end: u64 },
 	Closed,
 	TimesApplied,
+	MetadataSealed,
 	Observed,
 	Read,
 }
@@ -30,7 +31,6 @@ pub enum WriterError {
 	CreateUncertain(io::Error),
 	CreatedButUnverified(Box<Self>),
 	/// The full-file barrier returned success before live revalidation failed.
-	/// A checked close has yet to be confirmed.
 	BarrierPassedButUnverified(Box<Self>),
 	ClosedButUnverified(Box<Self>),
 	TimesAppliedButUnverified(Box<Self>),
@@ -117,9 +117,7 @@ impl fmt::Display for WriterError {
 			Self::Barrier(error) => fmt::Display::fmt(error, f),
 			Self::Close(error) => write!(f, "checked close failed ({error})"),
 			Self::Times(error) => write!(f, "timestamp application failed ({error})"),
-			Self::TimesMismatch => {
-				f.write_str("actual timestamps differ from the application request")
-			}
+			Self::TimesMismatch => f.write_str("actual timestamps differ from the expected values"),
 			Self::Identity(error) => fmt::Display::fmt(error, f),
 			Self::Metadata(error) => fmt::Display::fmt(error, f),
 			Self::MetadataRefused(error) => {
