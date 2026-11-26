@@ -26,6 +26,8 @@ CHECKSUM_PREFIX = "APFS checksum "
 CHECKSUM_SUCCESS = "APFS checksum differential completed"
 BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
+NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
+NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
 LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 STORED_CHECKSUM_BYTES = 8
@@ -147,3 +149,23 @@ def verify_locator_properties(transcript, cases, bounds, versions):
                        for scenario in cases["scenarios"])
     actual = Counter(line for line in lines if line.startswith(LOCATOR_PROPERTY_PREFIX))
     require(actual == expected, "missing, duplicate, or unexpected locator property scenarios")
+
+
+def verify_native_bootstrap(transcript, fixture, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native bootstrap transcript has the wrong Rust version")
+    require(lines[-1:] == [NATIVE_BOOTSTRAP_SUCCESS] and lines.count(NATIVE_BOOTSTRAP_SUCCESS) == 1,
+            "native bootstrap replay did not complete")
+    expected = [
+        f"ledger {fixture['ledger_sha256']}",
+        f"oracle {fixture['os_version']} {fixture['os_build']} {fixture['architecture']} "
+        f"{fixture['oracle_version']} 0 {fixture['checkpoint_xid']} {fixture['raw_sha256']}",
+        f"fixture {fixture['metadata_sha256']} {fixture['bootstrap_sha256']} {fixture['fsroot_sha256']}",
+        f"admitted {bounds['block_count'] * bounds['block_bytes']} {bounds['block_bytes']} "
+        f"{bounds['block_count']} {fixture['checkpoint_xid']} {fixture['wire_checksum']} {bounds['admitted_reads']}",
+        *(f"refused {case} {reads}" for case, reads in bounds["refused_reads"].items()),
+    ]
+    actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_BOOTSTRAP_PREFIX))
+    require(actual == Counter(f"{NATIVE_BOOTSTRAP_PREFIX}{row}" for row in expected),
+            "native bootstrap ledger, fixture, or replay facts disagree with the policy")

@@ -59,6 +59,24 @@ APFS bootstrap property checksum-window 65 9
 APFS bootstrap property required-feature 63
 APFS bootstrap properties completed
 """
+NATIVE_PROFILE = "bootstrap-native"
+NATIVE_FIXTURE = {
+    "os_version": "14.7.2", "os_build": "23H311", "architecture": "arm64", "oracle_version": "2236.141.1",
+    "checkpoint_xid": 4, "wire_checksum": "dd9368444871caee", "ledger_sha256": "a" * 64, "raw_sha256": "b" * 64,
+    "metadata_sha256": "c" * 64, "bootstrap_sha256": "d" * 64, "fsroot_sha256": "e" * 64,
+}
+NATIVE_TRANSCRIPT = f"""rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS native bootstrap ledger {'a' * 64}
+APFS native bootstrap oracle 14.7.2 23H311 arm64 2236.141.1 0 4 {'b' * 64}
+APFS native bootstrap fixture {'c' * 64} {'d' * 64} {'e' * 64}
+APFS native bootstrap admitted 67108864 4096 16384 4 dd9368444871caee 2
+APFS native bootstrap refused count 2
+APFS native bootstrap refused type 2
+APFS native bootstrap refused checksum 2
+APFS native bootstrap refused size 1
+APFS native bootstrap refused required-feature 2
+APFS native bootstrap replay completed
+"""
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -176,6 +194,24 @@ class ReleaseEvidenceTests(unittest.TestCase):
         )
         del self.record["proof"]
         self.set_transcript(BOOTSTRAP_TRANSCRIPT)
+
+    def set_native_profile(self):
+        profile = {
+            "obligation": "A-V01", "method": "native", "partial": True, "features": [],
+            "command": ["bash", "crates/filesystem/apfs-reader/verification/check-native-bootstrap.sh"],
+            "tool_versions": {"rustc": "1.99.1"},
+            "bounds": {"block_bytes": 4096, "block_count": 16384, "admitted_reads": 2,
+                       "refused_reads": {"size": 1, "count": 2, "type": 2, "checksum": 2, "required-feature": 2}},
+            "native_fixture": deepcopy(NATIVE_FIXTURE),
+        }
+        self.policy["profiles"][NATIVE_PROFILE] = profile
+        self.registry["obligations"][0]["required_methods"].append("native")
+        self.commit_policy()
+        self.record.update(commit=self.commit, source_hash=self.digest, profile=NATIVE_PROFILE, method="native",
+                           command=profile["command"], tool_versions=profile["tool_versions"], bounds=profile["bounds"],
+                           fixture_hash=NATIVE_FIXTURE["ledger_sha256"])
+        del self.record["proof"]
+        self.set_transcript(NATIVE_TRANSCRIPT)
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
@@ -358,6 +394,34 @@ APFS locator properties completed
         ]:
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_locator_properties(transcript.replace(old, replacement), cases, bounds, versions)
+
+
+    def test_native_replay_passes_as_partial_evidence(self):
+        self.set_native_profile()
+        self.assertEqual(self.check([self.record], NATIVE_PROFILE), (1, "0.1.0", self.commit))
+        with self.assertRaisesRegex(EvidenceError, "release policy omits A-V01/native"):
+            self.check([self.record])
+
+    def test_native_replay_requires_fixture_identity_and_all_scenarios(self):
+        self.set_native_profile()
+        for value in (None, "f" * 64):
+            record = dict(self.record, fixture_hash=value)
+            with self.subTest(value=value), self.assertRaisesRegex(EvidenceError, "native fixture hash"):
+                self.check([record], NATIVE_PROFILE)
+
+        refusal = "APFS native bootstrap refused count 2"
+        for old, new, error in (
+            ("2236.141.1 0 4", "2236.141.1 0 3", "replay facts"),
+            ("c" * 64, "f" * 64, "replay facts"),
+            ("16384 4 dd9368444871caee", "16384 5 dd9368444871caee", "replay facts"),
+            (refusal, "", "replay facts"),
+            (refusal, f"{refusal}\n{refusal}", "replay facts"),
+            ("refused size 1", "refused size 2", "replay facts"),
+            ("replay completed", "replay interrupted", "did not complete"),
+        ):
+            with self.subTest(change=new), self.assertRaisesRegex(EvidenceError, error):
+                self.set_transcript(NATIVE_TRANSCRIPT.replace(old, new))
+                self.check([self.record], NATIVE_PROFILE)
 
 
 if __name__ == "__main__":

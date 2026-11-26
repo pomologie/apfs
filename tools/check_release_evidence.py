@@ -11,7 +11,7 @@ import sys
 
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checksum_differential,
-    verify_kani, verify_locator_properties, verify_tlc,
+    verify_kani, verify_locator_properties, verify_native_bootstrap, verify_tlc,
 )
 
 
@@ -33,6 +33,9 @@ CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
 BOOTSTRAP_PROPERTY_COLUMNS = {"size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1}
+NATIVE_BOOTSTRAP_HASH_FIELDS = {"ledger_sha256", "raw_sha256", "metadata_sha256", "bootstrap_sha256", "fsroot_sha256"}
+NATIVE_BOOTSTRAP_ID_FIELDS = {"os_version", "os_build", "architecture", "oracle_version"}
+NATIVE_BOOTSTRAP_REFUSALS = {"size", "count", "type", "checksum", "required-feature"}
 
 
 def unique_object(pairs):
@@ -138,6 +141,8 @@ def verify_method_policy(name, profile):
             require(isinstance(rows, list) and rows and all(isinstance(row, list) and len(row) == columns
                     and all(positive_integer(value) for value in row) for row in rows)
                     and len({tuple(row) for row in rows}) == len(rows), f"invalid {case} rows for {name}")
+    elif method == "native":
+        verify_native_bootstrap_policy(name, profile)
     else:
         raise EvidenceError(f"no transcript verifier for {name}")
 
@@ -172,6 +177,26 @@ def verify_locator_policy(name, profile):
     scenarios = cases["scenarios"]
     require(text_list(scenarios) and scenarios and len(set(scenarios)) == len(scenarios),
             f"incomplete locator scenarios for {name}")
+
+
+def verify_native_bootstrap_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"native_fixture", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid native bootstrap policy for {name}")
+    fixture = profile["native_fixture"]
+    require(isinstance(fixture, dict) and set(fixture) == NATIVE_BOOTSTRAP_HASH_FIELDS | NATIVE_BOOTSTRAP_ID_FIELDS
+            | {"checkpoint_xid", "wire_checksum"}, f"incomplete native fixture for {name}")
+    require(all(isinstance(fixture[key], str) and SHA256.fullmatch(fixture[key])
+                for key in NATIVE_BOOTSTRAP_HASH_FIELDS), f"invalid native fixture hashes for {name}")
+    require(all(text(fixture[key]) and len(fixture[key].split()) == 1 for key in NATIVE_BOOTSTRAP_ID_FIELDS)
+            and positive_integer(fixture["checkpoint_xid"]) and isinstance(fixture["wire_checksum"], str)
+            and re.fullmatch(r"[0-9a-f]{16}", fixture["wire_checksum"]), f"invalid native fixture identity for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"block_bytes", "block_count", "admitted_reads", "refused_reads"}
+            and all(positive_integer(bounds[key]) for key in ("block_bytes", "block_count", "admitted_reads")),
+            f"invalid native bootstrap bounds for {name}")
+    refusals = bounds["refused_reads"]
+    require(isinstance(refusals, dict) and set(refusals) == NATIVE_BOOTSTRAP_REFUSALS
+            and all(positive_integer(reads) for reads in refusals.values()), f"incomplete native refusals for {name}")
 
 
 def required_matrix(policy, registry, requested_profile):
@@ -288,6 +313,10 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
     elif "locator_cases" in profile:
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
+    elif profile["method"] == "native":
+        require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
+                "native fixture hash does not match the acquisition ledger")
+        verify_native_bootstrap(transcript, profile["native_fixture"], profile["bounds"], profile["tool_versions"])
     else:
         verify_bootstrap_properties(transcript, profile["property_cases"], profile["tool_versions"])
 

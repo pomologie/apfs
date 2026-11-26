@@ -27,16 +27,24 @@ const CHECKPOINT_MAP_TYPE: u32 = Map::OBJECT_TYPE;
 fn recognizes_the_populated_sonoma_bootstrap() {
 	let fixture = Fixture::native_populated();
 	let source = BootstrapOnly::new(&fixture);
-	assert_eq!(
-		probe_extent(&source).unwrap(),
-		NonZeroU64::new(DEVICE_BYTES)
-	);
+	let extent = probe_extent(&source).unwrap();
+	assert_eq!(extent, NonZeroU64::new(DEVICE_BYTES));
 	assert_eq!(source.reads.get(), 2);
+	let reads = source.reads.get();
 	let source = container(fixture);
-	assert_eq!(source.superblock().object.transaction, POPULATED_CHECKPOINT);
+	let checkpoint = source.superblock();
+	assert_eq!(checkpoint.object.transaction, POPULATED_CHECKPOINT);
 	assert_eq!(
 		source.source().0[&BOOTSTRAP_BLOCK.0][..size_of::<u64>()],
 		NATIVE_BOOTSTRAP_CHECKSUM.to_le_bytes()
+	);
+	println!(
+		"\nAPFS native bootstrap admitted {} {} {} {} {:016x} {reads}",
+		extent.unwrap().get(),
+		checkpoint.geometry.block_bytes(),
+		checkpoint.geometry.block_count(),
+		checkpoint.object.transaction.0,
+		NATIVE_BOOTSTRAP_CHECKSUM,
 	);
 }
 
@@ -51,28 +59,35 @@ fn rejects_bad_bootstrap_size_before_the_full_block_read() {
 		Err(Error::Bootstrap(FormatError::InvalidGeometry))
 	));
 	assert_eq!(source.reads.get(), 1);
+	println!(
+		"\nAPFS native bootstrap refused size {}",
+		source.reads.get()
+	);
 }
 
 #[test]
 fn rejects_bad_bootstrap_count_type_and_checksum_without_traversal() {
-	let cases: [(usize, &[u8], FormatError); 3] = [
+	let cases: [(&str, usize, &[u8], FormatError); 3] = [
 		(
+			"count",
 			BLOCK_COUNT_OFFSET,
 			&u64::MAX.to_le_bytes(),
 			FormatError::InvalidGeometry,
 		),
 		(
+			"type",
 			OBJECT_TYPE_OFFSET,
 			&CHECKPOINT_MAP_TYPE.to_le_bytes(),
 			FormatError::UnexpectedObjectType(CHECKPOINT_MAP_TYPE),
 		),
 		(
+			"checksum",
 			CHECKSUM_OFFSET,
 			&(NATIVE_BOOTSTRAP_CHECKSUM ^ 1).to_le_bytes(),
 			FormatError::InvalidChecksum,
 		),
 	];
-	for (offset, bytes, expected) in cases {
+	for (case, offset, bytes, expected) in cases {
 		let mut fixture = Fixture::native_populated();
 		let block = fixture.0.get_mut(&BOOTSTRAP_BLOCK.0).unwrap();
 		block[offset..offset + bytes.len()].copy_from_slice(bytes);
@@ -85,6 +100,10 @@ fn rejects_bad_bootstrap_count_type_and_checksum_without_traversal() {
 			Err(Error::Bootstrap(error)) if error == expected
 		));
 		assert_eq!(source.reads.get(), 2);
+		println!(
+			"\nAPFS native bootstrap refused {case} {}",
+			source.reads.get()
+		);
 	}
 }
 
@@ -105,6 +124,10 @@ fn reports_the_populated_bootstrap_as_unsupported_for_an_unknown_required_featur
 		})
 	));
 	assert_eq!(source.reads.get(), 2);
+	println!(
+		"\nAPFS native bootstrap refused required-feature {}",
+		source.reads.get()
+	);
 }
 
 struct BootstrapOnly<'a> {

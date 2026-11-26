@@ -75,6 +75,33 @@
         "scenarios": ["contiguous-boundary", "fragment-locator", "beyond-source", "offset-overflow", "empty-ring", "missing-base", "raw-fields"]
       }
     },
+    "bootstrap-native": {
+      "obligation": "A-V01",
+      "method": "native",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/filesystem/apfs-reader/verification/check-native-bootstrap.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {
+        "block_bytes": 4096,
+        "block_count": 16384,
+        "admitted_reads": 2,
+        "refused_reads": {"size": 1, "count": 2, "type": 2, "checksum": 2, "required-feature": 2}
+      },
+      "native_fixture": {
+        "os_version": "14.7.2",
+        "os_build": "23H311",
+        "architecture": "arm64",
+        "oracle_version": "2236.141.1",
+        "checkpoint_xid": 4,
+        "wire_checksum": "dd9368444871caee",
+        "ledger_sha256": "635ff5db8ca0199ef6503be921809f23c0d9274b6537999acfbdd43ffd502ac1",
+        "raw_sha256": "a99a27e2e1c76b8df2d06b9cf45be2cee9093584a48c9e771e046105f23ed26b",
+        "metadata_sha256": "836e670fbcb530e4e6b8e7645dc0c7482a323d6dcce9c26f03f228e7b183f7ac",
+        "bootstrap_sha256": "222dbb4b02b3fec4ddd311f75fcb141c2af4059240cacde9f9d157340d6ecc33",
+        "fsroot_sha256": "080baefd59d8c407c3b7987f4565b3d10dc365378e9b9efe4a0dfd156befe04b"
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",
