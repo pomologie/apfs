@@ -93,6 +93,106 @@ fn reopens_stage_from_fresh_observations_and_reads_exactly() {
 }
 
 #[test]
+fn owned_reader_outlives_its_constructor_and_revalidates_its_name() {
+	let scratch = tempfile::tempdir().unwrap();
+	let path = scratch.path().join(STAGE);
+	fs::write(&path, PAYLOAD).unwrap();
+	set_mode(&path, PRIVATE_MODE);
+	let dir = directory(scratch.path());
+	let lease = exclusive(&dir);
+	let reader = {
+		let name = EntryName::new(STAGE.as_bytes()).unwrap();
+		ReopenedStage::open_named(&dir, name, &lease, EXTENT, |candidate| {
+			assert_eq!(candidate.metadata().mode, PRIVATE_MODE);
+			let acl = candidate
+				.extended_security(MAX_EXTENDED_SECURITY_BYTES)
+				.map_err(SourceError::Metadata)?;
+			assert!(acl.has_no_acl_entries());
+			Ok(())
+		})
+		.unwrap()
+	};
+	let mut buffer = [0; PAYLOAD.len()];
+	reader.read_exact_at(0, &mut buffer).unwrap();
+	assert_eq!(buffer, PAYLOAD);
+	reader.confirm_eof().unwrap();
+	assert_eq!(
+		reader.with_metadata(|view| view.stat()).unwrap().length,
+		EXTENT
+	);
+	let (snapshot, extended) = reader
+		.with_observation(|snapshot, view| {
+			assert_eq!(snapshot.metadata, view.stat()?);
+			view.extended_security(MAX_EXTENDED_SECURITY_BYTES)
+		})
+		.unwrap();
+	assert_eq!(snapshot.extent(), EXTENT);
+	assert!(extended.has_no_acl_entries());
+	fs::rename(&path, scratch.path().join("renamed")).unwrap();
+	fs::write(&path, PAYLOAD).unwrap();
+	assert!(matches!(reader.confirm_eof(), Err(SourceError::Changed)));
+	assert!(matches!(
+		reader.with_metadata(|view| view.stat()),
+		Err(SourceError::Changed)
+	));
+	assert!(matches!(
+		reader.with_observation::<()>(|_, _| panic!("replaced inode reached observation")),
+		Err(SourceError::Changed)
+	));
+}
+
+#[test]
+fn owned_reader_rejects_metadata_changed_during_a_coherent_observation() {
+	let scratch = tempfile::tempdir().unwrap();
+	let path = scratch.path().join(STAGE);
+	fs::write(&path, PAYLOAD).unwrap();
+	set_mode(&path, PRIVATE_MODE);
+	let dir = directory(scratch.path());
+	let lease = exclusive(&dir);
+	let name = EntryName::new(STAGE.as_bytes()).unwrap();
+	let reader = ReopenedStage::open_named(&dir, name, &lease, EXTENT, |_| Ok(())).unwrap();
+	assert!(matches!(
+		reader.with_observation(|_, _| {
+			set_mode(&path, WRONG_MODE);
+			Ok(())
+		}),
+		Err(SourceError::Changed)
+	));
+}
+
+#[test]
+fn owned_reader_distinguishes_missing_name_wrong_lease_and_lookup_alias() {
+	let scratch = tempfile::tempdir().unwrap();
+	let dir = directory(scratch.path());
+	let lease = exclusive(&dir);
+	let stage_name = || EntryName::new(STAGE.as_bytes()).unwrap();
+	assert!(matches!(
+		ReopenedStage::open_named(&dir, stage_name(), &lease, EXTENT, |_| panic!(
+			"absent name reached admission"
+		)),
+		Err(SourceError::Missing)
+	));
+	let other = tempfile::tempdir().unwrap();
+	let wrong_lease = exclusive(&directory(other.path()));
+	assert!(matches!(
+		ReopenedStage::open_named(&dir, stage_name(), &wrong_lease, EXTENT, |_| panic!(
+			"wrong lease reached admission"
+		)),
+		Err(SourceError::LeaseMismatch)
+	));
+	fs::write(scratch.path().join(STAGE), PAYLOAD).unwrap();
+	let alias = EntryName::new(STAGE_ALIAS.as_bytes()).unwrap();
+	let result = ReopenedStage::open_named(&dir, alias, &lease, EXTENT, |_| {
+		panic!("spelling alias reached admission")
+	});
+	if scratch.path().join(STAGE_ALIAS).try_exists().unwrap() {
+		assert!(matches!(result, Err(SourceError::Changed)));
+	} else {
+		assert!(matches!(result, Err(SourceError::Missing)));
+	}
+}
+
+#[test]
 fn refuses_wrong_lease_extent_and_policy_before_readable_admission() {
 	let scratch = tempfile::tempdir().unwrap();
 	let path = scratch.path().join(STAGE);

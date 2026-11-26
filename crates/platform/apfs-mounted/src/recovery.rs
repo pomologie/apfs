@@ -1,11 +1,11 @@
 //! Read-only inspection of an existing private stage under a fresh lease.
 
 use crate::{
-	EventHandle,
+	Directory, EntryName, EventHandle,
 	identity::ObjectIdentity,
 	lease::Lease,
 	metadata::{ExtendedSecurity, MetadataView, ObservationError, extended_security},
-	publication::EventEntry,
+	publication::{EntrySnapshot, EventEntry},
 	source::{PinnedSource, SourceError, SourceMetadata},
 };
 
@@ -69,21 +69,35 @@ impl<'scope> ReopenedStage<'scope> {
 		expected_length: u64,
 		admit: impl FnOnce(StageAdmission<'_>) -> Result<(), SourceError>,
 	) -> Result<Self, SourceError> {
-		let source = PinnedSource::open_anchored(anchor, lease, |identity, metadata| {
-			if metadata.length != expected_length {
-				return Err(SourceError::Changed);
-			}
-			let flags = metadata.object_flags();
-			if metadata.link_count != 1 || flags.is_dataless() || flags.is_firmlink() {
-				return Err(SourceError::Unsupported);
-			}
-			admit(StageAdmission {
-				identity,
-				metadata,
-				event: anchor.handle(),
-			})
-		})?;
-		Ok(Self(source))
+		PinnedSource::open_anchored(anchor, lease, stage_admission(expected_length, admit))
+			.map(Self)
+	}
+
+	/// Open an existing stage with an owned name and fresh event-only anchor.
+	///
+	/// The reader borrows the directory and lease. It retains both the supplied
+	/// component and the event anchor, so it can be returned by a caller that
+	/// constructs the name locally. Compare the new evidence against the original
+	/// inventory during admission and retain any separate recovery checks.
+	///
+	/// # Errors
+	/// Reports the same admission and data-open errors as [`Self::open`]. A
+	/// missing name is reported separately from a changed binding, and an anchor
+	/// open failure prevents caller admission.
+	pub fn open_named(
+		directory: &'scope Directory,
+		name: EntryName,
+		lease: &'scope Lease,
+		expected_length: u64,
+		admit: impl FnOnce(StageAdmission<'_>) -> Result<(), SourceError>,
+	) -> Result<Self, SourceError> {
+		PinnedSource::open_owned_anchor(
+			directory,
+			name,
+			lease,
+			stage_admission(expected_length, admit),
+		)
+		.map(Self)
 	}
 
 	/// Returns the initial native metadata, including pre-open access time.
@@ -105,6 +119,20 @@ impl<'scope> ReopenedStage<'scope> {
 		self.0.with_metadata(observe)
 	}
 
+	/// Sample the held stage and exact name together with bounded metadata queries.
+	/// The snapshot includes live access time. The reader retains its original
+	/// admission baseline and revalidates the lease and name around the observation.
+	///
+	/// # Errors
+	/// Reports changed or unavailable evidence, lease failures, metadata query
+	/// failures, or a materialization policy failure.
+	pub fn with_observation<T>(
+		&self,
+		observe: impl FnOnce(&EntrySnapshot, MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<(EntrySnapshot, T), SourceError> {
+		self.0.with_observation(observe)
+	}
+
 	/// Read the exact range, bounded by the admitted length and the companion's
 	/// single-request limit.
 	///
@@ -122,5 +150,25 @@ impl<'scope> ReopenedStage<'scope> {
 	/// expected length, and I/O or materialization policy failures.
 	pub fn confirm_eof(&self) -> Result<(), SourceError> {
 		self.0.revalidate()
+	}
+}
+
+fn stage_admission(
+	expected_length: u64,
+	admit: impl FnOnce(StageAdmission<'_>) -> Result<(), SourceError>,
+) -> impl FnOnce(&ObjectIdentity, SourceMetadata, &EventHandle) -> Result<(), SourceError> {
+	move |identity, metadata, event| {
+		if metadata.length != expected_length {
+			return Err(SourceError::Changed);
+		}
+		let flags = metadata.object_flags();
+		if metadata.link_count != 1 || flags.is_dataless() || flags.is_firmlink() {
+			return Err(SourceError::Unsupported);
+		}
+		admit(StageAdmission {
+			identity,
+			metadata,
+			event,
+		})
 	}
 }

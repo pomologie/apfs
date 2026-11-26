@@ -1,6 +1,7 @@
 //! Exact positioned reads from a selected live file under a held directory.
 
 use std::{
+	borrow::Cow,
 	error, fmt,
 	fs::File,
 	io,
@@ -13,12 +14,15 @@ use rustix::{
 };
 
 use crate::{
-	Directory, EntryName,
+	Directory, EntryName, EventHandle,
 	dataless::{ContentError, PolicyError, ScopeError, with_materialization_disabled},
 	identity::{IdentityError, ObjectIdentity},
 	lease::{Lease, LeaseError},
 	metadata::{MetadataView, ObjectFlags, ObservationError},
-	publication::EventEntry,
+	publication::{
+		EntrySnapshot, EntrySnapshotError, EntrySpelling, EventEntry,
+		observation::{sample_entry, with_snapshot},
+	},
 	stored_name,
 };
 
@@ -200,14 +204,28 @@ impl From<IdentityError> for SourceError {
 /// caller's authority and any required cooperation or leasing.
 pub struct PinnedSource<'root> {
 	root: &'root Directory,
-	name: &'root EntryName,
+	name: Cow<'root, EntryName>,
 	file: File,
 	root_identity: ObjectIdentity,
 	identity: ObjectIdentity,
 	initial: Stat,
 	metadata: SourceMetadata,
 	lease: Option<&'root Lease>,
-	exact_anchor: Option<&'root EventEntry<'root>>,
+	exact_anchor: Option<ExactAnchor<'root>>,
+}
+
+enum ExactAnchor<'root> {
+	Borrowed(&'root EventEntry<'root>),
+	Owned(EventHandle),
+}
+
+impl ExactAnchor<'_> {
+	const fn handle(&self) -> &EventHandle {
+		match self {
+			Self::Borrowed(anchor) => anchor.handle(),
+			Self::Owned(handle) => handle,
+		}
+	}
 }
 
 impl PinnedSource<'_> {
@@ -268,6 +286,37 @@ impl PinnedSource<'_> {
 		})
 	}
 
+	pub(crate) fn with_observation<T>(
+		&self,
+		observe: impl FnOnce(&EntrySnapshot, MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<(EntrySnapshot, T), SourceError> {
+		under_policy(|| {
+			self.validate_state()?;
+			let fd = self.file.as_fd();
+			let result = with_snapshot(
+				fd,
+				|| {
+					sample_entry(
+						self.root,
+						&self.name,
+						fd,
+						self.identity,
+						EntrySpelling::Exact,
+					)
+				},
+				observe,
+			);
+			self.validate_state()?;
+			result.map_err(|error| match error {
+				EntrySnapshotError::Identity(error) => error.into(),
+				EntrySnapshotError::Metadata(error) => SourceError::Metadata(error),
+				EntrySnapshotError::Changed
+				| EntrySnapshotError::FormerSourcePresent
+				| EntrySnapshotError::SpellingMismatch => SourceError::Changed,
+			})
+		})
+	}
+
 	/// Read exactly the requested bytes from the captured extent.
 	///
 	/// # Errors
@@ -319,10 +368,10 @@ impl PinnedSource<'_> {
 		admission::validate_lease(self.lease, self.root_identity)?;
 		self.root_identity.revalidate_held(self.root)?;
 		self.identity.revalidate_held(&self.file)?;
-		self.identity.revalidate_named(self.root, self.name)?;
-		validate_exact_anchor(self.exact_anchor, self.name, self.identity)?;
+		self.identity.revalidate_named(self.root, &self.name)?;
+		validate_exact_anchor(self.exact_anchor.as_ref(), &self.name, self.identity)?;
 		let held = fs::fstat(&self.file)?;
-		let named = stat_name(self.root, self.name)?.ok_or(SourceError::Changed)?;
+		let named = stat_name(self.root, &self.name)?.ok_or(SourceError::Changed)?;
 		if !same_stamp(&held, &self.initial) || !same_stamp(&named, &self.initial) {
 			return Err(SourceError::Changed);
 		}
@@ -331,12 +380,14 @@ impl PinnedSource<'_> {
 }
 
 fn validate_exact_anchor(
-	anchor: Option<&EventEntry<'_>>,
+	anchor: Option<&ExactAnchor<'_>>,
 	name: &EntryName,
 	identity: ObjectIdentity,
 ) -> Result<(), SourceError> {
 	if let Some(anchor) = anchor {
-		if *anchor.identity() != identity {
+		if let ExactAnchor::Borrowed(anchor) = anchor
+			&& *anchor.identity() != identity
+		{
 			return Err(SourceError::Changed);
 		}
 		identity.revalidate_held(anchor.handle())?;
