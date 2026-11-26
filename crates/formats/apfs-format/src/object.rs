@@ -9,7 +9,11 @@ use crate::{
 
 #[cfg(kani)]
 #[path = "../verification/kani/checksum.rs"]
-mod verification;
+mod checksum_verification;
+
+#[cfg(kani)]
+#[path = "../verification/kani/header.rs"]
+mod header_verification;
 
 // Byte offsets in the APFS obj_phys_t wire header.
 const CHECKSUM_OFFSET: usize = 0;
@@ -64,12 +68,16 @@ impl Header {
 	/// # Errors
 	/// Returns an error for incomplete input or an incorrect checksum.
 	pub fn decode(object: &[u8]) -> Result<Self, Error> {
-		let stored_checksum = u64_at(object, CHECKSUM_OFFSET)?;
-		if checksum(object)? != stored_checksum {
+		let header = Self::decode_fields(object)?;
+		if checksum(object)? != header.checksum {
 			return Err(Error::InvalidChecksum);
 		}
+		Ok(header)
+	}
+
+	fn decode_fields(object: &[u8]) -> Result<Self, Error> {
 		Ok(Self {
-			checksum: stored_checksum,
+			checksum: u64_at(object, CHECKSUM_OFFSET)?,
 			id: ObjectId(u64_at(object, OBJECT_ID_OFFSET)?),
 			transaction: TransactionId(u64_at(object, TRANSACTION_ID_OFFSET)?),
 			object_type: u32_at(object, OBJECT_TYPE_OFFSET)?,

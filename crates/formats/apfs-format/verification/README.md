@@ -6,6 +6,8 @@ The [bootstrap tests](../../../container/apfs-container/tests/probe_extent.rs) s
 
 The [checksum-window harness](kani/checksum.rs) checks the production word selection for every slice length from 0 through 40 bytes and arbitrary byte contents. An admitted slice must contain the complete 32-byte object header and end on a four-byte boundary. The selected window contains every byte in order after the stored eight-byte checksum. Coverage includes a truncated header, a header without payload, a partial payload word and two complete payload words. This harness covers the checksum input window. Fletcher-64 arithmetic and larger objects require separate evidence.
 
+The [object-header harness](kani/header.rs) encodes full-width symbolic values using the independent wire offsets for the checksum, object ID, transaction ID, type, and subtype. It checks the production field decoder and `Header::type_hint` for every prefix length through 32 bytes. The type hint begins succeeding at 28 bytes and the field decoder requires all 32 bytes. The public `Header::decode` additionally validates the checksum before returning the header.
+
 Install Kani 0.68.0, run `cargo kani setup`, then run `bash check.sh` from this directory. From the repository root, run `cargo test --locked -p apfs-container --test probe_extent` for the native-derived checks.
 
-On arm64 macOS, Kani 0.68.0 with CBMC 6.11.0 verified all three harnesses and reached all 36 cover properties. The seven bootstrap tests passed with Rust 1.99.1.
+On arm64 macOS, Kani 0.68.0 with CBMC 6.11.0 verified all four harnesses and reached all 40 cover properties. The seven bootstrap tests passed with Rust 1.99.1.
