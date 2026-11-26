@@ -56,6 +56,14 @@
     "warnings": "Regular-file device features were unavailable. The offline read-only fsroot and container checks completed."
   },
   "raw_sha256": "a99a27e2e1c76b8df2d06b9cf45be2cee9093584a48c9e771e046105f23ed26b",
+  "bootstrap": {
+    "physical_block": 0,
+    "block_bytes": 4096,
+    "block_count": 16384,
+    "xid": 4,
+    "checksum": "dd9368444871caee",
+    "sha256": "222dbb4b02b3fec4ddd311f75fcb141c2af4059240cacde9f9d157340d6ecc33"
+  },
   "fsroot": {
     "oid": 1028,
     "xid": 3,

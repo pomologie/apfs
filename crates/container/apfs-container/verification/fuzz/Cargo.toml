@@ -1,0 +1,31 @@
+[package]
+name = "apfs-container-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Workspace container
+apfs-container = { path = "../..", default-features = false }
+
+# Workspace formats
+apfs-format = { path = "../../../../formats/apfs-format", default-features = false }
+
+# Workspace foundation
+apfs-core = { path = "../../../../foundation/apfs-core", default-features = false }
+
+# Hosted verification
+libfuzzer-sys = "=0.4.13"
+
+[workspace]
+resolver = "3"
+
+[[bin]]
+name = "bootstrap"
+path = "fuzz_targets/bootstrap.rs"
+test = false
+doc = false
+bench = false

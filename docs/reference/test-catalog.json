@@ -11,8 +11,8 @@
       "scenario": "Native data container from synthetic tree; mutate block size/count/type/checksum, unsupported required flag. Reject before allocation and label unsupported profiles.",
       "oracle": "native APFS fixture; checksum ledger; fuzz",
       "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
-      "status": "planned",
-      "evidence": null
+      "status": "pass",
+      "evidence": "docs/features/CONTAINER.md"
     },
     {
       "id": "A-CONT-02-T01",

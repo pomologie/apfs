@@ -449,6 +449,8 @@ fn distinguishes_a_complete_directory_ancestry_from_missing_or_limited_ancestry(
 	);
 }
 
+#[path = "view/bootstrap.rs"]
+mod bootstrap;
 #[path = "view/reachable_check.rs"]
 mod check;
 #[path = "view/hard_links.rs"]
