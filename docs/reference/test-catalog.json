@@ -23,8 +23,8 @@
       "scenario": "Descriptor ring wrap, torn latest, malformed/missing map, mismatched XID; choose older valid with diagnostic only when allowed; no valid candidate fails.",
       "oracle": "native and synthetic checkpoint fixtures",
       "expected": "All stated checks in scenario pass; unsupported or unavailable is not a pass for an advertised capability.",
-      "status": "planned",
-      "evidence": null
+      "status": "pass",
+      "evidence": "docs/features/CONTAINER.md"
     },
     {
       "id": "A-CONT-03-T01",
