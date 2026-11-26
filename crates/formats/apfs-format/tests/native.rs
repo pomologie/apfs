@@ -1,8 +1,8 @@
 use apfs_format::{
 	Error,
 	checkpoint::Map,
-	object::{ObjectId, TransactionId, checksum},
-	superblock::{AreaLocation, BlockAddress, Superblock},
+	object::{HEADER_BYTES, ObjectId, TransactionId, checksum},
+	superblock::{AreaLocation, BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Superblock},
 };
 
 const DEVICE_SIZE: u64 = 64 * 1024 * 1024;
@@ -14,7 +14,10 @@ const SECOND_CHECKPOINT: &[u8] = include_bytes!("fixtures/native-block-4.bin");
 
 #[test]
 fn native_bootstrap_geometry_and_checksums() {
-	assert_eq!(Superblock::block_size_hint(&BOOTSTRAP[..40]), Ok(4096));
+	assert_eq!(
+		Superblock::block_size_hint(&BOOTSTRAP[..BLOCK_SIZE_PREFIX_BYTES]),
+		Ok(4096)
+	);
 	let container = Superblock::decode(BOOTSTRAP, DEVICE_SIZE).unwrap();
 	assert_eq!(container.geometry.block_count(), 16_384);
 	assert_eq!(container.object.checksum, 0x4665_3a58_ffa4_67b1);
@@ -49,6 +52,49 @@ fn native_checkpoint_and_mapping_objects_agree() {
 		assert!(map.is_last());
 		assert_eq!(map.mappings().len(), count);
 	}
+}
+
+#[test]
+fn native_live_rings_stop_at_the_verified_span() {
+	for (bytes, descriptor_slots, data_slots) in [
+		(FIRST_CHECKPOINT, 0..2, 0..2),
+		(SECOND_CHECKPOINT, 2..4, 2..6),
+	] {
+		let checkpoint = Superblock::decode(bytes, DEVICE_SIZE).unwrap();
+		for (area, expected) in [
+			(checkpoint.descriptors, descriptor_slots),
+			(checkpoint.data, data_slots),
+		] {
+			assert_eq!(area.length, expected.end - expected.start);
+			for (ordinal, slot) in (0..area.length).zip(expected) {
+				assert_eq!(area.ring_index(ordinal), Ok(slot));
+			}
+			assert_eq!(area.ring_index(area.length), Err(Error::InvalidCheckpoint));
+		}
+	}
+}
+
+#[test]
+fn native_objects_require_complete_buffers_and_their_own_decoder() {
+	let prefix = &BOOTSTRAP[..BLOCK_SIZE_PREFIX_BYTES];
+	assert_eq!(Superblock::block_size_hint(prefix), Ok(4096));
+	assert_eq!(
+		Superblock::verified_profile(prefix),
+		Err(Error::InvalidGeometry)
+	);
+	let checkpoint = Superblock::decode(BOOTSTRAP, DEVICE_SIZE).unwrap();
+	let geometry = checkpoint.geometry;
+
+	let map = Map::decode(SECOND_MAP, geometry).unwrap();
+	assert_eq!(map.header().transaction, checkpoint.object.transaction);
+	assert_eq!(
+		Map::decode(&SECOND_MAP[..HEADER_BYTES], geometry).unwrap_err(),
+		Error::InvalidGeometry
+	);
+	assert_eq!(
+		Map::decode(BOOTSTRAP, geometry).unwrap_err(),
+		Error::UnexpectedObjectType(Superblock::OBJECT_TYPE)
+	);
 }
 
 #[test]
