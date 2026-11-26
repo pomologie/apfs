@@ -239,8 +239,8 @@
       "scenario": "Physical, virtual and ephemeral identifier same numeric value",
       "oracle": "typed object resolver model",
       "expected": "No namespace conflation",
-      "status": "planned",
-      "evidence": null
+      "status": "pass",
+      "evidence": "crates/container/apfs-container/tests/checkpoint_selection/namespaces.rs"
     },
     {
       "id": "A-CONT-02-T02",

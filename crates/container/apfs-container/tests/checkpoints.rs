@@ -13,6 +13,8 @@ mod exact;
 mod hosted_parity;
 #[path = "../verification/checkpoint_selection.rs"]
 mod model;
+#[path = "checkpoint_selection/namespaces.rs"]
+mod namespaces;
 #[path = "object_map/lookup.rs"]
 mod object_map;
 #[path = "volume_objects/resolution.rs"]
