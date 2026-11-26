@@ -216,6 +216,28 @@ impl<'dir> Location<'dir> {
 		Ok(())
 	}
 
+	pub(super) fn observe_sealed_held(
+		&self,
+		file: &File,
+		expected: &Snapshot,
+		times: AccessModificationTimes,
+	) -> Result<Snapshot, WriterError> {
+		self.identity.revalidate_held(file)?;
+		self.identity.revalidate_held(&self.anchor)?;
+		if !extended_security(file, MAX_EXTENDED_SECURITY_BYTES)?.has_no_acl_entries() {
+			return Err(WriterError::NotPrivate);
+		}
+		let held = Snapshot::capture(fs::fstat(file)?, self.owner, expected.extent)?;
+		let anchor = Snapshot::capture(fs::fstat(&self.anchor)?, self.owner, expected.extent)?;
+		if !held.same_layout(expected) || !held.same_live(&anchor) {
+			return Err(WriterError::Changed);
+		}
+		if !held.matches_times(times) || !anchor.matches_times(times) {
+			return Err(WriterError::TimesMismatch);
+		}
+		Ok(held)
+	}
+
 	pub(super) fn open_read_only(&self, expected: &Snapshot) -> Result<File, WriterError> {
 		self.revalidate_anchor(expected)?;
 		let file = self.directory.open_file(self.name)?;
@@ -272,7 +294,7 @@ impl Snapshot {
 	}
 
 	// A data read can advance atime. It does not change the pinned live extent.
-	fn same_live(&self, other: &Self) -> bool {
+	pub(super) fn same_live(&self, other: &Self) -> bool {
 		self.same_layout(other)
 			&& self.extent == other.extent
 			&& self.stat.st_ctime == other.stat.st_ctime

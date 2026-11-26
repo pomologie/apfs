@@ -411,6 +411,28 @@ impl MetadataReadyFile<'_> {
 		})
 	}
 
+	/// Query the sealed inode through its retained read-only descriptor after a rename.
+	///
+	/// A rename can advance change time. All other sealed fields must still match,
+	/// and change time must remain stable across the query. Use
+	/// [`crate::publication::RenamedEntry::observe`] for separate namespace evidence.
+	/// # Errors
+	/// Returns identity, timestamp, metadata, process or materialization policy failures.
+	pub fn with_held_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.location.check_process()?;
+		without_materialization(LifecycleEffect::Observed, || {
+			let before = self.observe_held()?;
+			let result = observe(MetadataView::new(self.descriptor.as_fd()));
+			if !self.observe_held()?.same_live(&before) {
+				return Err(WriterError::Changed);
+			}
+			Ok(result?)
+		})
+	}
+
 	/// Verify that the live inode, name, extent and timestamps still match.
 	/// # Errors
 	/// Returns identity, metadata, process or policy failures.
@@ -422,6 +444,11 @@ impl MetadataReadyFile<'_> {
 	fn revalidate_final(&self) -> Result<(), WriterError> {
 		self.location
 			.revalidate_times(&self.descriptor, &self.observed, self.times)
+	}
+
+	fn observe_held(&self) -> Result<Snapshot, WriterError> {
+		self.location
+			.observe_sealed_held(&self.descriptor, &self.observed, self.times)
 	}
 }
 

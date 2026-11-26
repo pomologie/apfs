@@ -5,7 +5,7 @@ use std::{fs, fs::File, os::unix::fs::PermissionsExt};
 use apfs_mounted::{
 	Directory, EntryName,
 	lease::{Lease, LeaseAttempt, LeaseMode},
-	metadata::{self, AccessModificationTimes, Timestamp},
+	metadata::{self, AccessModificationTimes, MAX_EXTENDED_SECURITY_BYTES, Timestamp},
 	publication::{
 		EntryObservation, RenameAttempt, RenameEvidence, attempt_exclusive_rename, inventory,
 		sync_directories,
@@ -16,6 +16,8 @@ use apfs_mounted::{
 
 const PAYLOAD: &[u8] = b"descriptor-scoped test payload";
 const PRIVATE_MODE: u32 = 0o600;
+const READ_ONLY_MODE: u32 = 0o400;
+const PUBLIC_NAME: &str = "published";
 const EARLY_UNIX_SECONDS: i64 = 1_700_000_000;
 const FINAL_TIME_NANOS: i64 = 42;
 
@@ -61,7 +63,7 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 	let metadata = source.with_metadata(|view| view.stat()).unwrap();
 	assert_eq!(metadata.length, PAYLOAD.len() as u64);
 	let private_name = EntryName::new(b"payload").unwrap();
-	let public_name = EntryName::new(b"published").unwrap();
+	let public_name = EntryName::new(PUBLIC_NAME.as_bytes()).unwrap();
 	let mut copy = [0; PAYLOAD.len()];
 	source.read_exact_at(0, &mut copy).unwrap();
 	source.revalidate().unwrap();
@@ -137,6 +139,35 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 	assert!(matches!(
 		inventory(&stage, &private_name),
 		EntryObservation::Absent
+	));
+	let published_times = ready
+		.with_held_metadata(|view| {
+			assert!(
+				view.extended_security(MAX_EXTENDED_SECURITY_BYTES)?
+					.has_no_acl_entries()
+			);
+			Ok(view.stat()?.times)
+		})
+		.unwrap();
+	assert_eq!(published_times, final_times);
+	assert!(matches!(
+		renamed.observe(),
+		RenameEvidence::Confirmed { .. }
+	));
+	assert!(matches!(
+		ready.with_held_metadata(|_| {
+			fs::set_permissions(
+				scratch.path().join(PUBLIC_NAME),
+				fs::Permissions::from_mode(READ_ONLY_MODE),
+			)
+			.unwrap();
+			Ok(())
+		}),
+		Err(WriterError::NotPrivate)
+	));
+	assert!(matches!(
+		ready.with_held_metadata::<()>(|_| panic!("changed file reached metadata query")),
+		Err(WriterError::NotPrivate)
 	));
 	let published = PinnedSource::open(&root, &public_name).unwrap();
 	published.read_exact_at(0, &mut verified).unwrap();
