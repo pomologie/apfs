@@ -2,4 +2,5 @@
 set -euo pipefail
 
 verification_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-cargo kani --manifest-path "$verification_dir/../Cargo.toml" --harness nxsb_
+cargo kani --manifest-path "$verification_dir/../Cargo.toml" \
+	--harness nxsb_ --harness object_checksum_window_matches_wire_layout

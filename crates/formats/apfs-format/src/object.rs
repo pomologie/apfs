@@ -7,6 +7,10 @@ use crate::{
 	binary::{u32_at, u64_at},
 };
 
+#[cfg(kani)]
+#[path = "../verification/kani/checksum.rs"]
+mod verification;
+
 // Byte offsets in the APFS obj_phys_t wire header.
 const CHECKSUM_OFFSET: usize = 0;
 const OBJECT_ID_OFFSET: usize = 8;
@@ -81,6 +85,17 @@ impl Header {
 /// Returns [`Error::Truncated`] for an input shorter than the standard object
 /// header or a partial 32-bit word at the end of the object.
 pub fn checksum(object: &[u8]) -> Result<u64, Error> {
+	let (mut low, mut high) = (0, 0);
+	for word in checksum_words(object)? {
+		low = (low + u64::from(u32::from_le_bytes(*word))) % FLETCHER_MODULUS;
+		high = (high + low) % FLETCHER_MODULUS;
+	}
+	let check_low = FLETCHER_MODULUS - (low + high) % FLETCHER_MODULUS;
+	let check_high = FLETCHER_MODULUS - (low + check_low) % FLETCHER_MODULUS;
+	Ok(check_low | (check_high << u32::BITS))
+}
+
+fn checksum_words(object: &[u8]) -> Result<&[[u8; FLETCHER_WORD_BYTES]], Error> {
 	if object.len() < HEADER_BYTES {
 		return Err(Error::Truncated);
 	}
@@ -88,12 +103,5 @@ pub fn checksum(object: &[u8]) -> Result<u64, Error> {
 	if !tail.is_empty() {
 		return Err(Error::Truncated);
 	}
-	let (mut low, mut high) = (0, 0);
-	for word in words {
-		low = (low + u64::from(u32::from_le_bytes(*word))) % FLETCHER_MODULUS;
-		high = (high + low) % FLETCHER_MODULUS;
-	}
-	let check_low = FLETCHER_MODULUS - (low + high) % FLETCHER_MODULUS;
-	let check_high = FLETCHER_MODULUS - (low + check_low) % FLETCHER_MODULUS;
-	Ok(check_low | (check_high << u32::BITS))
+	Ok(words)
 }
