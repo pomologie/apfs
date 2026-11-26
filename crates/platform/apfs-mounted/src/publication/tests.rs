@@ -69,6 +69,21 @@ impl Fixture {
 			&self.identity,
 		)
 	}
+
+	fn attempt_checked<G, E>(
+		&self,
+		authorize: impl FnOnce() -> Result<G, E>,
+	) -> Result<RenameAttempt<'_>, E> {
+		attempt_exclusive_rename_checked(
+			&self.source,
+			&self.stage_name,
+			&self.destination,
+			&self.target_name,
+			&self.held,
+			&self.identity,
+			authorize,
+		)
+	}
 }
 
 #[test]
@@ -109,6 +124,19 @@ fn confirms_rename_of_the_held_inode_and_reports_both_barriers() {
 #[test]
 fn refuses_a_rebound_stage_name_before_rename() {
 	let fixture = Fixture::new();
+	let other_identity = ObjectIdentity::held(&fixture.destination).unwrap();
+	assert!(matches!(
+		attempt_exclusive_rename_checked(
+			&fixture.source,
+			&fixture.stage_name,
+			&fixture.destination,
+			&fixture.target_name,
+			&fixture.held,
+			&other_identity,
+			|| -> Result<(), ()> { panic!("failed held identity probe reached authorization") },
+		),
+		Ok(RenameAttempt::NotAttempted(RenameRejection::HeldObject(_)))
+	));
 	let stage = fixture.root().join("source/stage");
 	let former_stage = fixture.root().join("source/former");
 	fs::rename(&stage, &former_stage).unwrap();
@@ -121,12 +149,78 @@ fn refuses_a_rebound_stage_name_before_rename() {
 		fixture.attempt(),
 		RenameAttempt::NotAttempted(RenameRejection::SourceName(_))
 	));
+	assert!(matches!(
+		fixture.attempt_checked::<(), ()>(|| panic!("failed identity probe reached authorization")),
+		Ok(RenameAttempt::NotAttempted(RenameRejection::SourceName(_)))
+	));
 	assert_eq!(fs::read(stage).unwrap(), INCUMBENT_CONTENT);
 	assert_eq!(fs::read(former_stage).unwrap(), STAGE_CONTENT);
 	assert!(matches!(
 		inventory(&fixture.destination, &fixture.target_name),
 		EntryObservation::Absent
 	));
+}
+
+#[test]
+fn checked_rename_reports_refusal_before_kernel_occupancy_decision() {
+	#[derive(Debug, PartialEq, Eq)]
+	struct Revoked;
+
+	let fixture = Fixture::new();
+	let target = fixture.root().join("destination/target");
+	assert!(matches!(
+		fixture.attempt_checked::<(), _>(|| Err(Revoked)),
+		Err(Revoked)
+	));
+	assert!(!target.try_exists().unwrap());
+	fs::write(&target, INCUMBENT_CONTENT).unwrap();
+	assert!(matches!(
+		fixture.attempt_checked::<(), _>(|| Err(Revoked)),
+		Err(Revoked)
+	));
+	assert!(matches!(
+		fixture.attempt_checked(|| Ok::<_, Revoked>(())),
+		Ok(RenameAttempt::Conflict)
+	));
+	assert_eq!(fs::read(target).unwrap(), INCUMBENT_CONTENT);
+	assert_eq!(
+		fs::read(fixture.root().join("source/stage")).unwrap(),
+		STAGE_CONTENT
+	);
+}
+
+#[test]
+fn checked_rename_releases_the_borrowed_guard_after_the_move() {
+	struct Guard<'fixture> {
+		fixture: &'fixture Fixture,
+		dropped_after_move: &'fixture Cell<bool>,
+	}
+
+	impl Drop for Guard<'_> {
+		fn drop(&mut self) {
+			let fixture = self.fixture;
+			let original = inventory(&fixture.source, &fixture.stage_name);
+			let target = inventory(&fixture.destination, &fixture.target_name);
+			self.dropped_after_move.set(
+				matches!(original, EntryObservation::Absent)
+					&& matches!(target, EntryObservation::Present(identity) if identity == fixture.identity),
+			);
+		}
+	}
+
+	let fixture = Fixture::new();
+	let dropped_after_move = Cell::new(false);
+	let result = fixture.attempt_checked(|| {
+		assert!(matches!(inventory(&fixture.source, &fixture.stage_name), EntryObservation::Present(identity) if identity == fixture.identity));
+		Ok::<_, ()>(Guard { fixture: &fixture, dropped_after_move: &dropped_after_move })
+	});
+	let Ok(RenameAttempt::Renamed(renamed)) = result else {
+		panic!("expected one successful checked rename: {result:?}");
+	};
+	assert!(dropped_after_move.get());
+	assert!(
+		matches!(renamed.observe(), RenameEvidence::Confirmed { target } if target == fixture.identity)
+	);
 }
 
 #[test]

@@ -234,6 +234,43 @@ pub fn attempt_exclusive_rename<'binding>(
 	)
 }
 
+/// Revalidate the source, acquire a caller guard, then attempt the exclusive rename.
+///
+/// `authorize` runs only after the native held and named identity probes pass.
+/// Its guard stays live through the one no-clobber, no-follow syscall and is
+/// released before this function returns. There are no intervening filesystem
+/// probes or destination prelookup after `authorize` succeeds. The caller owns
+/// the grant, any deadline check at submission, durable intent, and barriers.
+/// A revocation guard does not extend a deadline or bound syscall duration.
+/// Protect the source binding throughout with cooperating-writer leases.
+///
+/// # Errors
+/// Returns the caller's authorization error without attempting the syscall.
+/// Native preflight failures and syscall results remain distinct [`RenameAttempt`] values.
+pub fn attempt_exclusive_rename_checked<'binding, G, E>(
+	source: &'binding Directory,
+	source_name: &'binding EntryName,
+	destination: &'binding Directory,
+	destination_name: &'binding EntryName,
+	held: &'binding impl AsFd,
+	expected: &'binding ObjectIdentity,
+	authorize: impl FnOnce() -> Result<G, E>,
+) -> Result<RenameAttempt<'binding>, E> {
+	let held = held.as_fd();
+	if let Err(rejection) = validate_rename_source(source, source_name, held, expected) {
+		return Ok(RenameAttempt::NotAttempted(rejection));
+	}
+	let _guard = authorize()?;
+	Ok(rename_once(
+		source,
+		source_name,
+		destination,
+		destination_name,
+		held,
+		expected,
+	))
+}
+
 /// The result of an exclusive name transition.
 #[derive(Debug)]
 #[non_exhaustive]
