@@ -20,6 +20,8 @@ The wrapped-descriptor test uses those two native checkpoints as the base for a 
 
 Retained blocks from two native Sonoma 14.7.2 images record descriptor-ring slot reuse across successive transactions. Apple’s read-only checker selected XID 4 in the base image. That checkpoint uses slots 6 and 7 of the eight-slot ring, places its NXSB at physical block 8, and declares the next slot as 0. After a native read-write attach and file creation, the early slots contain XIDs 5 and 6, and Apple’s checker selected XID 6. The portable engine’s automatic and exact selection agree with the recorded XIDs and the retained blocks’ descriptor addresses, live slots, and ephemeral mappings. Both selected native live spans occupy consecutive slots. The synthetic fixture above covers a live span that straddles the ring boundary. [Native checkpoint replay](../../crates/filesystem/apfs-reader/tests/view/native_checkpoints.rs) · [Base fixture ledger](../../crates/filesystem/apfs-reader/tests/fixtures/sonoma-payload-blocks.json) · [Derived fixture ledger](../../crates/filesystem/apfs-reader/tests/fixtures/sonoma-fragmented-blocks.json)
 
+The native replay also checks the read budget on the unchanged blocks. For each capture, automatic and exact selection each need 17 reads, from the bootstrap prefix through the physical object map. A budget one byte short of any read returns `Limit::ReadBytes` before calling the source for that read. The exact cumulative budget selects the expected XID. This covers 68 cutoff cases and four exact-budget opens. [Native read-budget test](../../crates/filesystem/apfs-reader/tests/view/native_checkpoints.rs)
+
 ### A-CONT-02-T01 acceptance
 
 | Scenario | Production resolver evidence |
