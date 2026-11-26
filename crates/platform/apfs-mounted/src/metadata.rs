@@ -102,6 +102,22 @@ pub struct Metadata {
 }
 
 impl Metadata {
+	pub(crate) fn from_stat(status: &Stat) -> Result<Self, ObservationError> {
+		Ok(Self {
+			file_type: FileType::from_raw_mode(status.st_mode),
+			length: u64::try_from(status.st_size)
+				.map_err(|_| ObservationError::Malformed("logical length"))?,
+			uid: status.st_uid,
+			gid: status.st_gid,
+			mode: Mode::from_raw_mode(status.st_mode),
+			link_count: status.st_nlink,
+			bsd_flags: status.st_flags,
+			times: AccessModificationTimes::from_stat(status)?,
+			change: Timestamp::capture(status.st_ctime, status.st_ctime_nsec)?,
+			birth: Timestamp::capture(status.st_birthtime, status.st_birthtime_nsec)?,
+		})
+	}
+
 	/// BSD flags interpreted using Darwin's object flag definitions.
 	#[must_use]
 	pub const fn object_flags(self) -> ObjectFlags {
@@ -213,20 +229,7 @@ impl Error for ApplyError {
 /// Returns an error when the descriptor query fails or the kernel reports
 /// a negative length or noncanonical timestamp.
 pub fn stat(fd: impl AsFd) -> Result<Metadata, ObservationError> {
-	let status = fstat(fd).map_err(io::Error::from)?;
-	Ok(Metadata {
-		file_type: FileType::from_raw_mode(status.st_mode),
-		length: u64::try_from(status.st_size)
-			.map_err(|_| ObservationError::Malformed("logical length"))?,
-		uid: status.st_uid,
-		gid: status.st_gid,
-		mode: Mode::from_raw_mode(status.st_mode),
-		link_count: status.st_nlink,
-		bsd_flags: status.st_flags,
-		times: AccessModificationTimes::from_stat(&status)?,
-		change: Timestamp::capture(status.st_ctime, status.st_ctime_nsec)?,
-		birth: Timestamp::capture(status.st_birthtime, status.st_birthtime_nsec)?,
-	})
+	Metadata::from_stat(&fstat(fd).map_err(io::Error::from)?)
 }
 
 /// Apply access and modification times and return their observed values.

@@ -7,8 +7,8 @@ use apfs_mounted::{
 	lease::{Lease, LeaseAttempt, LeaseMode},
 	metadata::{self, AccessModificationTimes, MAX_EXTENDED_SECURITY_BYTES, Timestamp},
 	publication::{
-		EntryObservation, RenameAttempt, RenameEvidence, attempt_exclusive_rename, inventory,
-		sync_directories,
+		EntryObservation, EntrySnapshotError, EntrySpelling, RenameAttempt, RenameEvidence,
+		attempt_exclusive_rename, inventory, pin_entry, sync_directories,
 	},
 	source::{PinnedSource, SourceError},
 	writer::{BirthTimePolicy, InitialFlags, MetadataCheckPhase, PrivateWriter, WriterError},
@@ -18,6 +18,8 @@ const PAYLOAD: &[u8] = b"descriptor-scoped test payload";
 const PRIVATE_MODE: u32 = 0o600;
 const READ_ONLY_MODE: u32 = 0o400;
 const PUBLIC_NAME: &str = "published";
+const PRIVATE_DIRECTORY_NAME: &str = "stage";
+const PRIVATE_PAYLOAD_NAME: &str = "payload";
 const EARLY_UNIX_SECONDS: i64 = 1_700_000_000;
 const FINAL_TIME_NANOS: i64 = 42;
 
@@ -34,7 +36,7 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 		panic!("fixture root was already locked");
 	};
 	let stage = root
-		.create_private_directory(&EntryName::new(b"stage").unwrap())
+		.create_private_directory(&EntryName::new(PRIVATE_DIRECTORY_NAME.as_bytes()).unwrap())
 		.unwrap();
 	assert!(
 		metadata::set_empty_acl_on_fresh_directory(&stage)
@@ -62,7 +64,7 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 	.unwrap();
 	let metadata = source.with_metadata(|view| view.stat()).unwrap();
 	assert_eq!(metadata.length, PAYLOAD.len() as u64);
-	let private_name = EntryName::new(b"payload").unwrap();
+	let private_name = EntryName::new(PRIVATE_PAYLOAD_NAME.as_bytes()).unwrap();
 	let public_name = EntryName::new(PUBLIC_NAME.as_bytes()).unwrap();
 	let mut copy = [0; PAYLOAD.len()];
 	source.read_exact_at(0, &mut copy).unwrap();
@@ -136,6 +138,30 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 		panic!("unexpected rename evidence: {evidence:?}");
 	};
 	assert_eq!(&target, ready.identity());
+	let (snapshot, no_acl) = renamed
+		.with_observation(EntrySpelling::Lookup, |observed, view| {
+			assert_eq!(observed.metadata, view.stat()?);
+			Ok(view
+				.extended_security(MAX_EXTENDED_SECURITY_BYTES)?
+				.has_no_acl_entries())
+		})
+		.unwrap();
+	assert_eq!(snapshot.identity, target);
+	assert_eq!(snapshot.extent(), PAYLOAD.len() as u64);
+	assert_eq!(snapshot.change_stamp(), snapshot.metadata.change);
+	assert!(no_acl);
+	let former_source = scratch
+		.path()
+		.join(PRIVATE_DIRECTORY_NAME)
+		.join(PRIVATE_PAYLOAD_NAME);
+	assert!(matches!(
+		renamed.with_observation(EntrySpelling::Lookup, |_, _| {
+			fs::write(&former_source, []).unwrap();
+			Ok(())
+		}),
+		Err(EntrySnapshotError::FormerSourcePresent)
+	));
+	fs::remove_file(&former_source).unwrap();
 	assert!(matches!(
 		inventory(&stage, &private_name),
 		EntryObservation::Absent
@@ -175,4 +201,48 @@ fn holds_a_private_verified_file_through_exclusive_publication() {
 	source.validate().unwrap();
 	lease.release().unwrap();
 	root_lease.release().unwrap();
+}
+
+#[test]
+fn event_observation_reports_one_binding_and_rejects_metadata_changes() {
+	let scratch = tempfile::tempdir().unwrap();
+	let path = scratch.path().join(PUBLIC_NAME);
+	fs::write(&path, PAYLOAD).unwrap();
+	fs::set_permissions(&path, fs::Permissions::from_mode(PRIVATE_MODE)).unwrap();
+	let directory = Directory::from_file(File::open(scratch.path()).unwrap()).unwrap();
+	let name = EntryName::new(PUBLIC_NAME.as_bytes()).unwrap();
+	let entry = pin_entry(&directory, &name).unwrap().unwrap();
+	let (snapshot, stat) = entry
+		.with_observation(EntrySpelling::Exact, |_, view| view.stat())
+		.unwrap();
+	assert_eq!(snapshot.identity, *entry.identity());
+	assert_eq!(snapshot.metadata, stat);
+	assert_eq!(snapshot.extent(), PAYLOAD.len() as u64);
+	let alias = EntryName::new(PUBLIC_NAME.to_ascii_uppercase().as_bytes()).unwrap();
+	if let Some(alias) = pin_entry(&directory, &alias).unwrap() {
+		let (lookup, ()) = alias
+			.with_observation(EntrySpelling::Lookup, |_, _| Ok(()))
+			.unwrap();
+		assert_eq!(lookup, snapshot);
+		assert!(matches!(
+			alias.with_observation::<()>(EntrySpelling::Exact, |_, _| panic!(
+				"wrong spelling reached metadata queries"
+			)),
+			Err(EntrySnapshotError::SpellingMismatch)
+		));
+	}
+	assert!(matches!(
+		entry.with_observation(EntrySpelling::Exact, |_, _| {
+			fs::set_permissions(&path, fs::Permissions::from_mode(READ_ONLY_MODE)).unwrap();
+			Ok(())
+		}),
+		Err(EntrySnapshotError::Changed)
+	));
+	fs::remove_file(&path).unwrap();
+	assert!(matches!(
+		entry.with_observation::<()>(EntrySpelling::Exact, |_, _| panic!(
+			"unbound entry reached metadata queries"
+		)),
+		Err(EntrySnapshotError::Changed)
+	));
 }

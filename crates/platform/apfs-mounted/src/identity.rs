@@ -95,11 +95,15 @@ impl ObjectIdentity {
 	/// Returns an error for unavailable evidence, changed observations or a
 	/// failed descriptor query.
 	pub fn held(fd: impl AsFd) -> Result<Self, IdentityError> {
+		Self::held_with_stat(fd).map(|(identity, _)| identity)
+	}
+
+	pub(crate) fn held_with_stat(fd: impl AsFd) -> Result<(Self, Stat), IdentityError> {
 		let fd = fd.as_fd();
 		let before = fs::fstat(fd)?;
 		let real = native::held(fd)?;
 		let after = fs::fstat(fd)?;
-		Self::checked(&before, real, &after)
+		Self::checked(&before, real, &after).map(|identity| (identity, after))
 	}
 
 	/// Observes a single relative entry without following a final symbolic link

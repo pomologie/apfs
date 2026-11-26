@@ -16,6 +16,10 @@ use crate::{
 	writer::{BarrierError, sync_directory},
 };
 
+pub(crate) mod observation;
+
+pub use observation::{EntrySnapshot, EntrySnapshotError, EntrySpelling};
+
 // Darwin <sys/stdio.h>. rustix 1.1.6 forwards retained bits to renameatx_np.
 const RENAME_NOFOLLOW_ANY: RenameFlags = RenameFlags::from_bits_retain(0x0000_0010);
 
