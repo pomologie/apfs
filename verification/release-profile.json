@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "milestone": "0.1.0",
+  "profiles": {
+    "format-kani": {
+      "obligation": "A-V01",
+      "method": "kani",
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check.sh"],
+      "tool_versions": {"kani": "0.68.0", "cbmc": "6.11.0"},
+      "bounds": {
+        "range_scalar_bits": 64,
+        "max_header_prefix_bytes": 32,
+        "max_checksum_input_bytes": 40,
+        "checkpoint_area_geometry_block_bytes": 4096,
+        "checkpoint_area_base_bits": 64,
+        "checkpoint_area_count_and_index_bits": 32
+      },
+      "harnesses": {
+        "object::checksum_verification::object_checksum_window_matches_wire_layout": 4,
+        "object::header_verification::object_header_fields_match_wire_layout": 4,
+        "superblock::verification::nxsb_block_size_matches_profile": 2,
+        "superblock::verification::nxsb_checkpoint_area_matches_wire_bounds": 7,
+        "superblock::verification::nxsb_geometry_matches_widened_model": 30
+      }
+    }
+  }
+}
