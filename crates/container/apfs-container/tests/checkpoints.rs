@@ -15,6 +15,8 @@ mod hosted_parity;
 mod layouts;
 #[path = "../verification/checkpoint_selection.rs"]
 mod model;
+#[path = "checkpoint_selection/multiple_maps.rs"]
+mod multiple_maps;
 #[path = "checkpoint_selection/namespaces.rs"]
 mod namespaces;
 #[path = "object_map/lookup.rs"]

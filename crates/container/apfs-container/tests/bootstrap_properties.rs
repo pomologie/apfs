@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use apfs_container::{Container, Error, OpenOptions, Unsupported};
+use apfs_container::{Container, Error, OpenOptions, Unsupported, probe_extent};
 use apfs_core::{BoundsError, ByteOffset, ReadAt};
 use apfs_format::{
 	Error as FormatError,
@@ -95,6 +95,16 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 				(geometry.block_bytes(), geometry.block_count()),
 				(size, count)
 			);
+			let source = BlockZero {
+				block: &block,
+				device_bytes,
+				reads: Cell::new(0),
+			};
+			assert_eq!(
+				probe_extent(&source).unwrap().unwrap().get(),
+				u64::try_from(extent).unwrap()
+			);
+			assert_eq!(source.reads.get(), 2);
 			admitted += 1;
 			for (base, blocks) in [
 				(0, 0),
@@ -163,7 +173,8 @@ fn each_additional_required_feature_bit_stops_before_traversal() {
 		put(&mut block, INCOMPATIBLE, flag.to_le_bytes());
 		seal(&mut block);
 		let source = BlockZero {
-			block,
+			block: &block,
+			device_bytes: DEVICE_BYTES,
 			reads: Cell::new(0),
 		};
 		assert!(matches!(
@@ -186,16 +197,17 @@ fn seal(object: &mut [u8]) {
 	object[..CHECKSUM_BYTES].copy_from_slice(&check.to_le_bytes());
 }
 
-struct BlockZero {
-	block: [u8; NATIVE.len()],
+struct BlockZero<'a> {
+	block: &'a [u8],
+	device_bytes: u64,
 	reads: Cell<usize>,
 }
 
-impl ReadAt for BlockZero {
+impl ReadAt for BlockZero<'_> {
 	type Error = BoundsError;
 
 	fn len(&self) -> u64 {
-		DEVICE_BYTES
+		self.device_bytes
 	}
 
 	fn read_exact_at(&self, at: ByteOffset, output: &mut [u8]) -> Result<(), Self::Error> {
@@ -204,6 +216,6 @@ impl ReadAt for BlockZero {
 		assert_eq!(at, BOOTSTRAP);
 		assert_eq!(output.len(), sizes[read]);
 		self.reads.set(read + 1);
-		self.block.as_slice().read_exact_at(at, output)
+		self.block.read_exact_at(at, output)
 	}
 }

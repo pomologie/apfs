@@ -137,6 +137,41 @@ fn discovers_an_empty_checkpoint_and_accepts_visible_older_cow_objects() {
 }
 
 #[test]
+fn selection_diagnostics_describe_valid_checkpoint_contents() {
+	let options = LookupOptions::default();
+	let empty = Container::open_at(Fixture::native(), OpenOptions::default(), EARLY_XID).unwrap();
+	let Err(Error::VolumeSelection(error @ VolumeSelectionError::NoVolumes)) =
+		empty.select_volume_id(None, options)
+	else {
+		panic!("expected an empty checkpoint");
+	};
+	assert_eq!(error.to_string(), "APFS checkpoint has no volumes");
+
+	let multiple = open(two_volumes(OTHER_UUID));
+	let Err(Error::VolumeSelection(error @ VolumeSelectionError::AmbiguousVolumes(2))) =
+		multiple.select_volume_id(None, options)
+	else {
+		panic!("expected an explicit choice between two volumes");
+	};
+	assert_eq!(
+		error.to_string(),
+		"APFS checkpoint has 2 volumes; select one by UUID or object ID"
+	);
+
+	let single = open(Fixture::native());
+	let selector = VolumeSelector::ObjectId(OTHER_ID);
+	let Err(Error::VolumeSelection(error @ VolumeSelectionError::UnknownVolume(requested))) =
+		single.select_volume_id(Some(selector), options)
+	else {
+		panic!("expected the missing selected volume");
+	};
+	assert_eq!(requested, selector);
+	let message = error.to_string();
+	assert!(message.contains(&format!("{selector:?}")));
+	assert!(message.ends_with("was not found in the chosen checkpoint"));
+}
+
+#[test]
 fn enumerates_sparse_slots_without_guessing_a_volume_and_shares_one_budget() {
 	let opts = LookupOptions::default();
 	let view = open(two_volumes(OTHER_UUID));
