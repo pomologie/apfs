@@ -46,6 +46,16 @@ pub enum Locality {
 	Remote,
 }
 
+/// Whether the mount ignores native file ownership.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum OwnershipMode {
+	/// The mount uses the filesystem's own ownership semantics.
+	Native,
+	/// The mount reports `MNT_IGNORE_OWNERSHIP`.
+	Ignored,
+}
+
 /// Capabilities reported by the mounted volume.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -66,14 +76,13 @@ pub struct VolumeCapabilities {
 /// Live mount facts. They confer no authority and do not describe a snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub struct Volume {
+pub struct MountFacts {
 	filesystem_type: CString,
 	mount_flags: u32,
 	pub locality: Locality,
-	pub capabilities: VolumeCapabilities,
 }
 
-impl Volume {
+impl MountFacts {
 	/// Native filesystem type name as reported by `fstatfs`.
 	pub fn filesystem_type(&self) -> &CStr {
 		&self.filesystem_type
@@ -96,12 +105,52 @@ impl Volume {
 		self.mount_flags & libc::MNT_AUTOMOUNTED as u32 != 0
 	}
 
-	pub fn ignores_ownership(&self) -> bool {
-		self.mount_flags & libc::MNT_IGNORE_OWNERSHIP as u32 != 0
+	/// Report mount ownership behavior independently of attribute support.
+	pub fn ownership_mode(&self) -> OwnershipMode {
+		if self.mount_flags & libc::MNT_IGNORE_OWNERSHIP as u32 == 0 {
+			OwnershipMode::Native
+		} else {
+			OwnershipMode::Ignored
+		}
 	}
 }
 
-/// Observe the mount for an already held directory without reopening its path.
+/// Live mount facts and a separate observation of supported operations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct Volume {
+	mount: MountFacts,
+	pub locality: Locality,
+	pub capabilities: VolumeCapabilities,
+}
+
+impl Volume {
+	pub fn filesystem_type(&self) -> &CStr {
+		self.mount.filesystem_type()
+	}
+
+	pub fn is_apfs(&self) -> bool {
+		self.mount.is_apfs()
+	}
+
+	pub fn mount_flags(&self) -> u32 {
+		self.mount.mount_flags()
+	}
+
+	pub fn is_read_only(&self) -> bool {
+		self.mount.is_read_only()
+	}
+
+	pub fn is_automounted(&self) -> bool {
+		self.mount.is_automounted()
+	}
+
+	pub fn ignores_ownership(&self) -> bool {
+		self.mount.ownership_mode() == OwnershipMode::Ignored
+	}
+}
+
+/// Observe the mount and capabilities for a held directory.
 ///
 /// Capability bits apply only where Darwin marks them valid. An unsupported
 /// attribute query yields unknown capabilities, except where mount flags
@@ -112,6 +161,24 @@ impl Volume {
 /// Returns an error for a non-directory handle, other native failures, or a
 /// malformed response.
 pub fn observe(directory: impl AsFd) -> io::Result<Volume> {
+	let fd = directory.as_fd();
+	let mount = observe_mount(fd)?;
+	let (capabilities, attributes) = match query_volume_attributes(fd) {
+		Ok(response) => parse_response(&response)?,
+		Err(error) if error.kind() == io::ErrorKind::Unsupported => (None, None),
+		Err(error) => return Err(error),
+	};
+	Ok(Volume {
+		locality: mount.locality,
+		capabilities: volume_capabilities(capabilities, attributes, mount.mount_flags()),
+		mount,
+	})
+}
+
+/// Observe mount classification without querying Darwin capability attributes.
+/// # Errors
+/// Returns an error for a non-directory, a native failure, or a malformed filesystem name.
+pub fn observe_mount(directory: impl AsFd) -> io::Result<MountFacts> {
 	let fd = directory.as_fd();
 	if FileType::from_raw_mode(fstat(fd)?.st_mode) != FileType::Directory {
 		return Err(io::ErrorKind::NotADirectory.into());
@@ -129,16 +196,10 @@ pub fn observe(directory: impl AsFd) -> io::Result<Volume> {
 	} else {
 		Locality::Remote
 	};
-	let (capabilities, attributes) = match query_volume_attributes(fd) {
-		Ok(response) => parse_response(&response)?,
-		Err(error) if error.kind() == io::ErrorKind::Unsupported => (None, None),
-		Err(error) => return Err(error),
-	};
-	Ok(Volume {
+	Ok(MountFacts {
 		filesystem_type,
 		mount_flags,
 		locality,
-		capabilities: volume_capabilities(capabilities, attributes, mount_flags),
 	})
 }
 

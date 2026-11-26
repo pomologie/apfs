@@ -106,3 +106,38 @@ fn malformed_length_and_bitmap_cannot_claim_capabilities() {
 		);
 	}
 }
+
+#[test]
+fn mount_flags_distinguish_ownership_from_other_properties() {
+	let mut mount = MountFacts {
+		filesystem_type: c"apfs".to_owned(),
+		mount_flags: (libc::MNT_RDONLY | libc::MNT_AUTOMOUNTED) as u32,
+		locality: Locality::Local,
+	};
+	assert_eq!(mount.ownership_mode(), OwnershipMode::Native);
+	assert!(mount.is_read_only());
+	assert!(mount.is_automounted());
+	mount.mount_flags |= libc::MNT_IGNORE_OWNERSHIP as u32;
+	assert_eq!(mount.ownership_mode(), OwnershipMode::Ignored);
+}
+
+#[test]
+fn live_mount_classification_agrees_with_the_full_observation() {
+	let dir = tempfile::tempdir().unwrap();
+	let file = std::fs::File::open(dir.path()).unwrap();
+	let mount = observe_mount(&file).unwrap();
+	let volume = observe(&file).unwrap();
+	assert_eq!(mount.filesystem_type(), volume.filesystem_type());
+	assert_eq!(mount.mount_flags(), volume.mount_flags());
+	assert_eq!(mount.locality, volume.locality);
+	assert_eq!(
+		mount.ownership_mode() == OwnershipMode::Ignored,
+		volume.ignores_ownership()
+	);
+
+	let regular = tempfile::tempfile_in(dir.path()).unwrap();
+	assert_eq!(
+		observe_mount(regular).unwrap_err().kind(),
+		io::ErrorKind::NotADirectory
+	);
+}
