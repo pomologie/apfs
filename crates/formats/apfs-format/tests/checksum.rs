@@ -1,0 +1,83 @@
+use apfs_format::object::{Header, checksum};
+
+const CHECK_BYTES: usize = 8;
+const WORD_BYTES: usize = 4;
+const MODULUS: u128 = u32::MAX as u128;
+const BLOCK_SIZES: [usize; 5] = [4096, 8192, 16_384, 32_768, 65_536];
+
+const SONOMA_OBJECTS: &[&[u8]] = &[
+	include_bytes!("fixtures/native-block-0.bin"),
+	include_bytes!("fixtures/native-block-1.bin"),
+	include_bytes!("fixtures/native-block-2.bin"),
+	include_bytes!("fixtures/native-block-3.bin"),
+	include_bytes!("fixtures/native-block-4.bin"),
+	include_bytes!("fixtures/sonoma-populated-omap-container.bin"),
+	include_bytes!("fixtures/sonoma-populated-omap-volume.bin"),
+];
+
+fn assert_fletcher_check_words(payload: &[u8], check: [u8; CHECK_BYTES]) {
+	// Append the check words in wire order, then compute each Fletcher residue
+	// by a direct wide sum. The weighted sum counts how many prefixes include
+	// each word. Neither sum uses the production recurrence.
+	let (words, remainder) = payload.as_chunks::<WORD_BYTES>();
+	assert!(remainder.is_empty());
+	let (check_words, remainder) = check.as_chunks::<WORD_BYTES>();
+	assert!(remainder.is_empty());
+	assert!(
+		check_words
+			.iter()
+			.all(|word| u32::from_le_bytes(*word) != 0)
+	);
+	let count = (words.len() + check_words.len()) as u128;
+	let (sum, weighted) = words.iter().chain(check_words).zip((1..=count).rev()).fold(
+		(0, 0),
+		|(sum, weighted), (word, weight)| {
+			let value = u128::from(u32::from_le_bytes(*word));
+			(sum + value, weighted + value * weight)
+		},
+	);
+	assert_eq!((sum % MODULUS, weighted % MODULUS), (0, 0));
+}
+
+#[test]
+fn checks_retained_sonoma_objects_against_the_wire_checksum() {
+	for object in SONOMA_OBJECTS {
+		let (stored, payload) = object.split_at(CHECK_BYTES);
+		let expected = <[u8; CHECK_BYTES]>::try_from(stored).unwrap();
+		assert_fletcher_check_words(payload, expected);
+		let expected = u64::from_le_bytes(expected);
+		assert_eq!(checksum(object), Ok(expected));
+		assert_eq!(Header::decode(object).unwrap().checksum, expected);
+	}
+}
+
+#[test]
+fn checks_fletcher_residues_at_each_admitted_block_size() {
+	const WORD_PATTERNS: [u32; 4] = [0, 1, u32::MAX - 1, u32::MAX];
+	const DISTINCT_WORD: u32 = 0x1234_5678;
+
+	for size in BLOCK_SIZES {
+		let mut object = vec![0; size];
+		for word in WORD_PATTERNS {
+			let (words, remainder) = object[CHECK_BYTES..].as_chunks_mut::<WORD_BYTES>();
+			assert!(remainder.is_empty());
+			words.fill(word.to_le_bytes());
+			let uniform = checksum(&object).unwrap();
+			assert_fletcher_check_words(&object[CHECK_BYTES..], uniform.to_le_bytes());
+			if word == 0 || word == u32::MAX {
+				assert_eq!(uniform, u64::MAX);
+			}
+
+			for position in [CHECK_BYTES, size / 2, size - WORD_BYTES] {
+				let word_bytes = position..position + WORD_BYTES;
+				object[word_bytes.clone()].copy_from_slice(&DISTINCT_WORD.to_le_bytes());
+				let check = checksum(&object).unwrap();
+				assert_fletcher_check_words(&object[CHECK_BYTES..], check.to_le_bytes());
+				object[..CHECK_BYTES].copy_from_slice(&check.to_le_bytes());
+				assert_eq!(checksum(&object), Ok(check));
+				assert_eq!(Header::decode(&object).unwrap().checksum, check);
+				object[word_bytes].copy_from_slice(&word.to_le_bytes());
+			}
+		}
+	}
+}
