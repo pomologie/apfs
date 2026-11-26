@@ -59,4 +59,5 @@ jobs:
           persist-credentials: false
       - run: cargo install --locked kani-verifier --version '=0.68.0'
       - run: cargo kani setup
+      - run: bash crates/formats/apfs-format/verification/check.sh
       - run: bash crates/container/apfs-container/verification/check.sh

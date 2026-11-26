@@ -8,6 +8,10 @@ use crate::{
 	object::{HEADER_BYTES, Header, ObjectId, TransactionId},
 };
 
+#[cfg(kani)]
+#[path = "../verification/kani/geometry.rs"]
+mod verification;
+
 const NX_SUPERBLOCK_MAGIC: [u8; 4] = *b"NXSB";
 const NX_SUPERBLOCK_OBJECT_TYPE: u32 = 0x8000_0001;
 const NX_SUPERBLOCK_OBJECT_SUBTYPE: u32 = 0;

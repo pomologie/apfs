@@ -227,8 +227,8 @@
       "scenario": "NXSB block size/count overflow, object checksum mismatch, unknown required flag",
       "oracle": "Kani; native fixture",
       "expected": "Reject before allocation or expose header-only unsupported profile",
-      "status": "planned",
-      "evidence": null
+      "status": "pass",
+      "evidence": "crates/formats/apfs-format/verification/README.md"
     },
     {
       "id": "A-CONT-01-T03",

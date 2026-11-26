@@ -2,16 +2,27 @@ use std::{cell::RefCell, num::NonZeroU64};
 
 use apfs_container::{Container, Error, OpenOptions, Unsupported, probe_extent};
 use apfs_core::{ByteOffset, ReadAt};
-use apfs_format::{Error as FormatError, object::checksum, superblock::BLOCK_SIZE_PREFIX_BYTES};
+use apfs_format::{
+	Error as FormatError,
+	object::checksum,
+	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress},
+};
 
 const BLOCK_BYTES: usize = 4096;
 const CONTAINER_BYTES: u64 = 64 << 20;
 const TRAILING_BYTES: u64 = 1024;
 const BOOTSTRAP: ByteOffset = ByteOffset(0);
+const BOOTSTRAP_DESCRIPTOR: BlockAddress = BlockAddress(0);
+const PREFIX_READS: [(ByteOffset, usize); 1] = [(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES)];
+const BOOTSTRAP_READS: [(ByteOffset, usize); 2] = [
+	(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES),
+	(BOOTSTRAP, BLOCK_BYTES),
+];
 const BLOCK_SIZE_OFFSET: usize = BLOCK_SIZE_PREFIX_BYTES - size_of::<u32>();
 const BLOCK_COUNT_OFFSET: usize = BLOCK_SIZE_PREFIX_BYTES;
 const INCOMPATIBLE_OFFSET: usize = 64;
-const UNKNOWN_FEATURE: u64 = 1 << 63;
+const NATIVE_INCOMPATIBLE_FEATURES: u64 = 1 << 1;
+const UNKNOWN_PROFILE: u64 = NATIVE_INCOMPATIBLE_FEATURES | (1 << 63);
 const LARGER_BLOCK_BYTES: u32 = 8192;
 
 #[derive(Debug)]
@@ -62,13 +73,7 @@ fn native_geometry_ignores_trailing_bytes_and_reads_only_block_zero() {
 		probe_extent(&source).unwrap(),
 		NonZeroU64::new(CONTAINER_BYTES)
 	);
-	assert_eq!(
-		*source.reads.borrow(),
-		[
-			(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES),
-			(BOOTSTRAP, BLOCK_BYTES),
-		]
-	);
+	assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
 }
 
 #[test]
@@ -81,10 +86,7 @@ fn short_source_and_missing_magic_are_absent() {
 	source.length = BLOCK_SIZE_PREFIX_BYTES as u64;
 	source.block.fill(0);
 	assert_eq!(probe_extent(&source).unwrap(), None);
-	assert_eq!(
-		*source.reads.borrow(),
-		[(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES)]
-	);
+	assert_eq!(*source.reads.borrow(), PREFIX_READS);
 }
 
 #[test]
@@ -98,10 +100,7 @@ fn recognized_bad_size_or_truncated_block_stops_after_prefix() {
 			probe_extent(&source),
 			Err(Error::Bootstrap(FormatError::InvalidGeometry))
 		));
-		assert_eq!(
-			*source.reads.borrow(),
-			[(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES)]
-		);
+		assert_eq!(*source.reads.borrow(), PREFIX_READS);
 	}
 }
 
@@ -136,16 +135,46 @@ fn larger_valid_hint_propagates_a_full_block_read_failure() {
 #[test]
 fn geometry_recognition_and_unsupported_checkpoint_profile_stay_distinct() {
 	let mut source = Source::native();
-	source.set_u64(INCOMPATIBLE_OFFSET, UNKNOWN_FEATURE);
+	source.set_u64(INCOMPATIBLE_OFFSET, UNKNOWN_PROFILE);
 	assert_eq!(
 		probe_extent(&source).unwrap(),
 		NonZeroU64::new(CONTAINER_BYTES)
 	);
+	source.reads.borrow_mut().clear();
 	assert!(matches!(
-		Container::open(source, OpenOptions::default()),
+		Container::open(&source, OpenOptions::default()),
 		Err(Error::Unsupported {
-			reason: Unsupported::IncompatibleFeatures(UNKNOWN_FEATURE),
+			descriptor: BOOTSTRAP_DESCRIPTOR,
+			reason: Unsupported::IncompatibleFeatures(UNKNOWN_PROFILE),
 			..
 		})
 	));
+	assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
+}
+
+#[test]
+fn malformed_bootstrap_never_reads_checkpoint_blocks() {
+	let mut bad_size = Source::native();
+	bad_size.block[BLOCK_SIZE_OFFSET..BLOCK_SIZE_PREFIX_BYTES]
+		.copy_from_slice(&u32::MAX.to_le_bytes());
+	assert!(matches!(
+		Container::open(&bad_size, OpenOptions::default()),
+		Err(Error::Bootstrap(FormatError::InvalidGeometry))
+	));
+	assert_eq!(*bad_size.reads.borrow(), PREFIX_READS);
+
+	let mut bad_count = Source::native();
+	bad_count.set_u64(BLOCK_COUNT_OFFSET, u64::MAX);
+	let mut bad_checksum = Source::native();
+	bad_checksum.block[BLOCK_BYTES - 1] ^= 1;
+	for (source, expected) in [
+		(bad_count, FormatError::InvalidGeometry),
+		(bad_checksum, FormatError::InvalidChecksum),
+	] {
+		assert!(matches!(
+			Container::open(&source, OpenOptions::default()),
+			Err(Error::Bootstrap(error)) if error == expected
+		));
+		assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
+	}
 }
