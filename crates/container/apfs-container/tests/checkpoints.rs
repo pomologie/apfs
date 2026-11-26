@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use apfs_container::{Container, Corruption, Diagnostic, Error, Limit, OpenOptions, Unsupported};
 use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{
-	object::{ObjectId, TransactionId, checksum},
+	object::{Header, ObjectId, TransactionId, checksum},
 	superblock::BlockAddress,
 };
 
@@ -24,6 +24,13 @@ const EARLY_NXSB: u64 = 2;
 const LATEST_MAP: u64 = 3;
 const LATEST_NXSB: u64 = 4;
 const LAST_DESCRIPTOR_BLOCK: u64 = 8;
+const WRAPPED_NXSB: u64 = EARLY_MAP;
+const MOVED_EARLY_MAP: u64 = EARLY_NXSB;
+const MOVED_EARLY_NXSB: u64 = LATEST_MAP;
+const MOVED_EARLY_DESCRIPTOR_INDEX: u32 = 1;
+const MOVED_EARLY_DESCRIPTOR_NEXT: u32 = 3;
+const WRAPPED_DESCRIPTOR_INDEX: u32 = 7;
+const WRAPPED_DESCRIPTOR_NEXT: u32 = 1;
 const DATA_RING_START: u64 = 9;
 const LATEST_FIRST_DATA: u64 = 11;
 const DATA_RING_BLOCKS: u64 = 160;
@@ -93,6 +100,45 @@ impl Fixture {
 			(LATEST_OMAP, native_block!(199)),
 			(LATEST_OMAP_ROOT, native_block!(200)),
 		]))
+	}
+
+	/// Keep the earlier native checkpoint complete while the newer descriptor
+	/// wraps to the first ring slot and refers to a map in the last slot.
+	fn wrapped_descriptors() -> Self {
+		let mut fixture = Self::native();
+		let latest_map = fixture.0[&LATEST_MAP];
+		fixture.0.insert(MOVED_EARLY_NXSB, fixture.0[&EARLY_NXSB]);
+		fixture.0.insert(MOVED_EARLY_MAP, fixture.0[&EARLY_MAP]);
+		fixture.0.insert(WRAPPED_NXSB, fixture.0[&LATEST_NXSB]);
+		fixture.0.insert(LAST_DESCRIPTOR_BLOCK, latest_map);
+		fixture.0.insert(LATEST_NXSB, [0; BLOCK_BYTES]);
+		fixture.set_u64(MOVED_EARLY_MAP, OBJECT_ID_OFFSET, MOVED_EARLY_MAP);
+		fixture.set_u32(
+			MOVED_EARLY_NXSB,
+			DESCRIPTOR_INDEX_OFFSET,
+			MOVED_EARLY_DESCRIPTOR_INDEX,
+		);
+		fixture.set_u32(
+			MOVED_EARLY_NXSB,
+			DESCRIPTOR_NEXT_OFFSET,
+			MOVED_EARLY_DESCRIPTOR_NEXT,
+		);
+		fixture.set_u64(
+			LAST_DESCRIPTOR_BLOCK,
+			OBJECT_ID_OFFSET,
+			LAST_DESCRIPTOR_BLOCK,
+		);
+		fixture.set_u32(
+			WRAPPED_NXSB,
+			DESCRIPTOR_INDEX_OFFSET,
+			WRAPPED_DESCRIPTOR_INDEX,
+		);
+		fixture.set_u32(
+			WRAPPED_NXSB,
+			DESCRIPTOR_NEXT_OFFSET,
+			WRAPPED_DESCRIPTOR_NEXT,
+		);
+		fixture
 	}
 
 	fn set_u32(&mut self, block: u64, offset: usize, value: u32) {
@@ -182,35 +228,76 @@ fn unsupported_latest_is_not_treated_as_rollback() {
 
 #[test]
 fn reads_descriptor_and_data_spans_across_ring_wrap() {
-	let mut fixture = Fixture::native();
-	let wrapped_map = LAST_DESCRIPTOR_BLOCK;
-	let wrapped_nxsb = EARLY_MAP;
-	fixture.0.insert(wrapped_map, fixture.0[&LATEST_MAP]);
-	fixture.0.insert(wrapped_nxsb, fixture.0[&LATEST_NXSB]);
-	for obsolete in [EARLY_NXSB, LATEST_MAP, LATEST_NXSB] {
-		fixture.0.insert(obsolete, [0; BLOCK_BYTES]);
-	}
-	fixture.set_u64(wrapped_map, OBJECT_ID_OFFSET, wrapped_map);
-	fixture.set_u32(wrapped_nxsb, DESCRIPTOR_INDEX_OFFSET, 7);
-	fixture.set_u32(wrapped_nxsb, DESCRIPTOR_NEXT_OFFSET, 1);
+	let mut fixture = Fixture::wrapped_descriptors();
 	let start = DATA_RING_BLOCKS - 2;
-	fixture.set_u32(wrapped_nxsb, DATA_INDEX_OFFSET, start as u32);
-	fixture.set_u32(wrapped_nxsb, DATA_NEXT_OFFSET, 2);
+	fixture.set_u32(WRAPPED_NXSB, DATA_INDEX_OFFSET, start as u32);
+	fixture.set_u32(WRAPPED_NXSB, DATA_NEXT_OFFSET, 2);
 	for index in 0..LATEST_MAPPING_COUNT {
 		let block = DATA_RING_START + (start + index as u64) % DATA_RING_BLOCKS;
 		fixture
 			.0
 			.insert(block, fixture.0[&(LATEST_FIRST_DATA + index as u64)]);
 		fixture.set_u64(
-			wrapped_map,
+			LAST_DESCRIPTOR_BLOCK,
 			FIRST_MAPPING_OFFSET + index * MAPPING_BYTES + MAPPING_PHYSICAL_OFFSET,
 			block,
 		);
 	}
 	let view = Container::open(fixture, OpenOptions::default()).unwrap();
-	assert_eq!(view.descriptor(), BlockAddress(wrapped_nxsb));
+	assert_eq!(view.descriptor(), BlockAddress(WRAPPED_NXSB));
 	assert_eq!(view.mappings().len(), LATEST_MAPPING_COUNT);
 	assert!(view.diagnostics().is_empty());
+}
+
+#[test]
+fn wrapped_checkpoint_requires_its_map_even_with_a_verified_descriptor() {
+	let options = OpenOptions::default();
+	let complete = Container::open(Fixture::wrapped_descriptors(), options).unwrap();
+	assert_eq!(complete.descriptor(), BlockAddress(WRAPPED_NXSB));
+	assert_eq!(complete.superblock().object.transaction, LATEST_XID);
+	assert!(complete.diagnostics().is_empty());
+
+	let mut fixture = Fixture::wrapped_descriptors();
+	fixture.0.insert(LAST_DESCRIPTOR_BLOCK, [0; BLOCK_BYTES]);
+	assert_eq!(
+		Header::decode(&fixture.0[&WRAPPED_NXSB])
+			.unwrap()
+			.transaction,
+		LATEST_XID
+	);
+	assert!(matches!(
+		Container::open_at(fixture, options, LATEST_XID),
+		Err(Error::CandidateCorruption(damage))
+			if damage.descriptor == BlockAddress(WRAPPED_NXSB)
+				&& damage.transaction == Some(LATEST_XID)
+	));
+
+	let mut fixture = Fixture::wrapped_descriptors();
+	fixture.0.insert(LAST_DESCRIPTOR_BLOCK, [0; BLOCK_BYTES]);
+	let latest = Container::open(fixture, options).unwrap();
+	assert_eq!(latest.descriptor(), BlockAddress(MOVED_EARLY_NXSB));
+	assert_eq!(latest.superblock().object.transaction, EARLY_XID);
+	assert!(matches!(
+		latest.diagnostics(),
+		[
+			Diagnostic::Rejected(damage),
+			Diagnostic::NewerBootstrap { advertised: LATEST_XID, selected: EARLY_XID },
+		] if damage.descriptor == BlockAddress(WRAPPED_NXSB)
+			&& damage.transaction == Some(LATEST_XID)
+	));
+
+	let mut fixture = Fixture::wrapped_descriptors();
+	for map in [LAST_DESCRIPTOR_BLOCK, MOVED_EARLY_MAP] {
+		fixture.0.insert(map, [0; BLOCK_BYTES]);
+	}
+	assert!(matches!(
+		Container::open(fixture, options),
+		Err(Error::NoCheckpoint { diagnostics })
+			if matches!(diagnostics.as_slice(), [
+				Diagnostic::Rejected(newer), Diagnostic::Rejected(older),
+			] if newer.transaction == Some(LATEST_XID)
+				&& older.transaction == Some(EARLY_XID))
+	));
 }
 
 #[test]
