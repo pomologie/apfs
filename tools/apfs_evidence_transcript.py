@@ -1,6 +1,7 @@
 """Check invocation transcripts under the committed APFS evidence policy."""
 
 import re
+from collections import Counter
 
 
 class EvidenceError(ValueError):
@@ -21,6 +22,10 @@ TLC_BASELINE = "APFS TLC baseline"
 TLC_WITNESS = "APFS TLC negative witness"
 TLC_SUCCESS = "Model checking completed. No error has been found."
 TLC_WITNESS_EXIT = "APFS TLC witness exit code: 12"
+CHECKSUM_PREFIX = "APFS checksum "
+CHECKSUM_SUCCESS = "APFS checksum differential completed"
+STORED_CHECKSUM_BYTES = 8
+FLETCHER_WORD_BYTES = 4
 
 
 def verify_kani(transcript, harnesses, versions):
@@ -89,3 +94,25 @@ def verify_tlc(transcript, model, bounds, versions):
     require(TLC_SUCCESS not in witness and witness.count(expected_error) == 1 and witness[-1:] == [TLC_WITNESS_EXIT]
             and "Error: The behavior up to this point is:" in witness,
             "TLC negative witness did not produce the expected counterexample")
+
+
+def verify_checksum_differential(transcript, cases, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "checksum transcript has the wrong Rust version")
+    require(lines[-1:] == [CHECKSUM_SUCCESS] and lines.count(CHECKSUM_SUCCESS) == 1,
+            "checksum differential run did not complete")
+
+    expected = []
+    for name, checksum in cases["fixtures"].items():
+        expected.append(f"{CHECKSUM_PREFIX}native {name} {bounds['fixture_bytes']} {checksum}")
+    for size in cases["block_sizes"]:
+        positions = (STORED_CHECKSUM_BYTES, size // 2, size - FLETCHER_WORD_BYTES)
+        for word in cases["uniform_words"]:
+            expected.append(f"{CHECKSUM_PREFIX}uniform {size} {word}")
+            for position in positions:
+                expected.append(f"{CHECKSUM_PREFIX}singleton {size} {word} {position} {bounds['distinct_word']}")
+
+    actual = Counter(line for line in lines[:-1] if line.startswith(CHECKSUM_PREFIX))
+    expected = Counter(expected)
+    require(actual == expected, "missing, duplicate, or unexpected checksum scenarios")

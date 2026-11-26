@@ -24,6 +24,28 @@
         "superblock::verification::nxsb_geometry_matches_widened_model": 30
       }
     },
+    "format-checksum-differential": {
+      "obligation": "A-V01",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-checksum.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"fixture_bytes": 4096, "max_block_bytes": 65536, "distinct_word": 305419896},
+      "checksum_cases": {
+        "fixtures": {
+          "native-block-0.bin": "46653a58ffa467b1",
+          "native-block-1.bin": "809e252d3f61b296",
+          "native-block-2.bin": "776e3d73f4ab9ec4",
+          "native-block-3.bin": "81393fa03ec66fe0",
+          "native-block-4.bin": "4665313affa470d2",
+          "sonoma-populated-omap-container.bin": "91e5a04e1e582875",
+          "sonoma-populated-omap-volume.bin": "1015733ba00855a0"
+        },
+        "block_sizes": [4096, 8192, 16384, 32768, 65536],
+        "uniform_words": [0, 1, 4294967294, 4294967295]
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",

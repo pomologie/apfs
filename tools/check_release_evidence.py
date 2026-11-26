@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 
-from apfs_evidence_transcript import EvidenceError, require, verify_kani, verify_tlc
+from apfs_evidence_transcript import EvidenceError, require, verify_checksum_differential, verify_kani, verify_tlc
 
 
 POLICY_PATH = "verification/release-profile.json"
@@ -26,6 +26,9 @@ OPTIONAL_RECORD_FIELDS = {"seed", "trace_hash", "fixture_hash", "proof"}
 PROFILE_FIELDS = {"obligation", "method", "features", "command", "tool_versions", "bounds"}
 TLC_MODEL_FIELDS = {"name", "initial_states", "states", "distinct_states", "depth", "violated_invariant"}
 TLC_BOUND_FIELDS = {"candidate_xids", "ring_slots", "workers", "seed", "fingerprint_index"}
+CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
+CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
+UINT32_MAX = 2**32 - 1
 
 
 def unique_object(pairs):
@@ -113,8 +116,28 @@ def verify_method_policy(name, profile):
                 for key in ("initial_states", "distinct_states", "states", "depth"))
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
+    elif method == "differential":
+        require(set(profile) == PROFILE_FIELDS | {"checksum_cases", "partial"} and profile["partial"] is True
+                and "rustc" in versions, f"invalid checksum differential policy for {name}")
+        verify_checksum_policy(name, profile["checksum_cases"], bounds)
     else:
         raise EvidenceError(f"no transcript verifier for {name}")
+
+
+def verify_checksum_policy(name, cases, bounds):
+    require(set(bounds) == CHECKSUM_BOUND_FIELDS and all(positive_integer(value) for value in bounds.values())
+            and bounds["distinct_word"] <= UINT32_MAX, f"invalid checksum bounds for {name}")
+    require(isinstance(cases, dict) and set(cases) == CHECKSUM_CASE_FIELDS, f"invalid checksum cases for {name}")
+    fixtures = cases["fixtures"]
+    require(text_mapping(fixtures) and fixtures and all(re.fullmatch(r"[0-9a-f]{16}", checksum)
+            for checksum in fixtures.values()), f"invalid fixture checksums for {name}")
+    sizes, words = cases["block_sizes"], cases["uniform_words"]
+    require(isinstance(sizes, list) and sizes and all(positive_integer(size) and size >= 32 and size % 4 == 0
+            for size in sizes) and len(set(sizes)) == len(sizes) and max(sizes) == bounds["max_block_bytes"]
+            and bounds["fixture_bytes"] in sizes, f"invalid checksum sizes for {name}")
+    require(isinstance(words, list) and words and all(type(word) is int and 0 <= word <= UINT32_MAX for word in words)
+            and len(set(words)) == len(words) and bounds["distinct_word"] not in words,
+            f"invalid checksum word patterns for {name}")
 
 
 def required_matrix(policy, registry, requested_profile):
@@ -154,7 +177,8 @@ def required_matrix(policy, registry, requested_profile):
         require(text_list(profile["features"]) and len(set(profile["features"])) == len(profile["features"])
                 and text_list(profile["command"]) and profile["command"], f"invalid invocation for {name}")
         verify_method_policy(name, profile)
-        covered.add((obligation, method))
+        if not profile.get("partial", False):
+            covered.add((obligation, method))
 
     if requested_profile is not None:
         require(requested_profile in profiles, "unknown requested profile")
@@ -212,17 +236,20 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             "incomplete invocation provenance")
     require(json.dumps(record["bounds"], sort_keys=True) == json.dumps(profile["bounds"], sort_keys=True),
             "proof bounds do not match profile")
-    proof = {"theorem": name}
+    proof = None if profile["method"] == "differential" else {"theorem": name}
     if profile["method"] == "tlc":
         model = profile["model"]
         proof.update(states=model["states"], distinct_states=model["distinct_states"])
         require(record.get("seed") == str(profile["bounds"]["seed"]), "TLC seed does not match profile")
-    require(record.get("proof") == proof, "proof metadata does not match profile")
+    require((proof is None and "proof" not in record) or (proof is not None and record.get("proof") == proof),
+            "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
     if profile["method"] == "kani":
         verify_kani(transcript, profile["harnesses"], profile["tool_versions"])
-    else:
+    elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
+    else:
+        verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
 
 
 def validate(root, bundle, requested_profile):

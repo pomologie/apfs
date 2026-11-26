@@ -41,6 +41,15 @@ Error: The behavior up to this point is:
 State 1: <Initial predicate>
 APFS TLC witness exit code: 12
 """
+CHECKSUM_PROFILE = "format-checksum-differential"
+CHECKSUM_TRANSCRIPT = """rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS checksum native native-block-0.bin 4096 46653a58ffa467b1
+APFS checksum uniform 4096 0
+APFS checksum singleton 4096 0 8 305419896
+APFS checksum singleton 4096 0 2048 305419896
+APFS checksum singleton 4096 0 4092 305419896
+APFS checksum differential completed
+"""
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -117,6 +126,26 @@ class ReleaseEvidenceTests(unittest.TestCase):
             seed="0", proof={"theorem": TLC_PROFILE, "states": 16396, "distinct_states": 13196},
         )
         self.set_transcript(TLC_TRANSCRIPT)
+
+    def set_checksum_profile(self):
+        profile = {
+            "obligation": "A-V01", "method": "differential", "partial": True, "features": [],
+            "command": ["bash", "crates/formats/apfs-format/verification/check-checksum.sh"],
+            "tool_versions": {"rustc": "1.99.1"},
+            "bounds": {"fixture_bytes": 4096, "max_block_bytes": 4096, "distinct_word": 305419896},
+            "checksum_cases": {"fixtures": {"native-block-0.bin": "46653a58ffa467b1"},
+                               "block_sizes": [4096], "uniform_words": [0]},
+        }
+        self.policy["profiles"][CHECKSUM_PROFILE] = profile
+        self.registry["methods"]["differential"] = "independent comparison"
+        self.registry["obligations"][0]["required_methods"].append("differential")
+        self.commit_policy()
+        self.record.update(
+            commit=self.commit, source_hash=self.digest, profile=CHECKSUM_PROFILE, method="differential",
+            command=profile["command"], tool_versions=profile["tool_versions"], bounds=profile["bounds"],
+        )
+        del self.record["proof"]
+        self.set_transcript(CHECKSUM_TRANSCRIPT)
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
@@ -237,6 +266,27 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.set_transcript(TLC_TRANSCRIPT.replace(old, replacement))
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 self.check([self.record], TLC_PROFILE)
+
+    def test_checksum_scenarios_pass_as_partial_evidence(self):
+        self.set_checksum_profile()
+        self.assertEqual(self.check([self.record], CHECKSUM_PROFILE), (1, "0.1.0", self.commit))
+        with self.assertRaisesRegex(EvidenceError, "release policy omits A-V01/differential"):
+            self.check([self.record])
+
+    def test_checksum_requires_the_named_objects_matrix_and_completion(self):
+        self.set_checksum_profile()
+        pattern = "APFS checksum uniform 4096 0"
+        cases = [("native-block-0.bin", "native-block-1.bin", "checksum scenarios"),
+                 ("46653a58ffa467b1", "0000000000000001", "checksum scenarios"),
+                 ("4096 0 2048", "4096 0 2044", "checksum scenarios"),
+                 (pattern, "", "checksum scenarios"),
+                 (pattern, f"{pattern}\n{pattern}", "checksum scenarios"),
+                 ("differential completed", "differential interrupted", "did not complete"),
+                 ("rustc 1.99.1", "rustc 1.100.0", "wrong Rust version")]
+        for old, replacement, expected in cases:
+            self.set_transcript(CHECKSUM_TRANSCRIPT.replace(old, replacement))
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                self.check([self.record], CHECKSUM_PROFILE)
 
 
 if __name__ == "__main__":
