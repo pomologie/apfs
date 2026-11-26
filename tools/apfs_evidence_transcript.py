@@ -30,6 +30,8 @@ NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
 LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
+CHECKPOINT_MODEL_PREFIX = "APFS checkpoint model "
+CHECKPOINT_MODEL_SUCCESS = "APFS checkpoint model completed"
 STORED_CHECKSUM_BYTES = 8
 FLETCHER_WORD_BYTES = 4
 
@@ -149,6 +151,19 @@ def verify_locator_properties(transcript, cases, bounds, versions):
                        for scenario in cases["scenarios"])
     actual = Counter(line for line in lines if line.startswith(LOCATOR_PROPERTY_PREFIX))
     require(actual == expected, "missing, duplicate, or unexpected locator property scenarios")
+
+
+def verify_checkpoint_model(transcript, cases, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "checkpoint model transcript has the wrong Rust version")
+    require(lines[-1:] == [CHECKPOINT_MODEL_SUCCESS] and lines.count(CHECKPOINT_MODEL_SUCCESS) == 1,
+            "checkpoint model run did not complete")
+    expected = Counter(f"{CHECKPOINT_MODEL_PREFIX}{early} {latest} {request}"
+                       for early in cases["states"] for latest in cases["states"]
+                       for request in cases["requests"])
+    actual = Counter(line for line in lines[:-1] if line.startswith(CHECKPOINT_MODEL_PREFIX))
+    require(actual == expected, "missing, duplicate, or unexpected checkpoint model scenarios")
 
 
 def verify_native_bootstrap(transcript, fixture, bounds, versions):

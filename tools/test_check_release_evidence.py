@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
-from apfs_evidence_transcript import verify_locator_properties
+from apfs_evidence_transcript import verify_checkpoint_model, verify_locator_properties
 
 
 PROFILE = "format-kani"
@@ -394,6 +394,25 @@ APFS locator properties completed
         ]:
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_locator_properties(transcript.replace(old, replacement), cases, bounds, versions)
+
+    def test_checkpoint_model_transcript_requires_each_state_and_request_pair(self):
+        cases = {"states": ["Complete", "TornDescriptor"], "requests": ["automatic", "1", "2"]}
+        versions = {"rustc": "1.99.1"}
+        lines = ["rustc 1.99.1 (58cf8f9c3 2026-10-13)"]
+        lines.extend(f"APFS checkpoint model {early} {latest} {request}"
+                     for early in cases["states"] for latest in cases["states"] for request in cases["requests"])
+        lines.append("APFS checkpoint model completed")
+        transcript = "\n".join(lines) + "\n"
+        verify_checkpoint_model(transcript, cases, versions)
+        row = "APFS checkpoint model Complete TornDescriptor 1"
+        for old, replacement, expected in (
+            (row, "", "checkpoint model scenarios"),
+            (row, row + "\n" + row, "checkpoint model scenarios"),
+            (row, row.replace(" 1", " 3"), "checkpoint model scenarios"),
+            ("model completed", "model interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                verify_checkpoint_model(transcript.replace(old, replacement), cases, versions)
 
 
     def test_native_replay_passes_as_partial_evidence(self):

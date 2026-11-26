@@ -231,6 +231,7 @@ fn observed(result: Result<Container<Fixture>, Error<u64>>) -> (Outcome, Vec<War
 
 #[test]
 fn wrapped_selection_matches_reference_model() {
+	println!();
 	for early in State::ALL {
 		for latest in State::ALL {
 			for at in [None, Some(EARLY), Some(LATEST)] {
@@ -248,6 +249,11 @@ fn wrapped_selection_matches_reference_model() {
 					"earlier={early:?}, latest={latest:?}, exact={:?}",
 					at.map(|candidate| candidate.xid),
 				);
+				let request = at.map_or_else(
+					|| "automatic".into(),
+					|candidate| candidate.xid.0.to_string(),
+				);
+				println!("APFS checkpoint model {early:?} {latest:?} {request}");
 			}
 		}
 	}

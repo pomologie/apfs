@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 from apfs_evidence_transcript import (
-    EvidenceError, require, verify_bootstrap_properties, verify_checksum_differential,
+    EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_model, verify_checksum_differential,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_tlc,
 )
 
@@ -128,6 +128,9 @@ def verify_method_policy(name, profile):
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
     elif method == "property":
+        if "checkpoint_cases" in profile:
+            verify_checkpoint_model_policy(name, profile)
+            return
         if "locator_cases" in profile:
             verify_locator_policy(name, profile)
             return
@@ -177,6 +180,21 @@ def verify_locator_policy(name, profile):
     scenarios = cases["scenarios"]
     require(text_list(scenarios) and scenarios and len(set(scenarios)) == len(scenarios),
             f"incomplete locator scenarios for {name}")
+
+
+def verify_checkpoint_model_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"checkpoint_cases", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid checkpoint model policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"candidate_xids", "descriptor_ring_slots", "cases"}
+            and all(positive_integer(value) for value in bounds.values()), f"invalid checkpoint model bounds for {name}")
+    cases = profile["checkpoint_cases"]
+    require(isinstance(cases, dict) and set(cases) == {"states", "requests"}, f"invalid checkpoint model cases for {name}")
+    states, requests = cases["states"], cases["requests"]
+    require(text_list(states) and states and len(set(states)) == len(states)
+            and text_list(requests) and len(set(requests)) == bounds["candidate_xids"] + 1
+            and len(set(requests)) == len(requests) and "automatic" in requests
+            and len(states) ** 2 * len(requests) == bounds["cases"], f"incomplete checkpoint scenario matrix for {name}")
 
 
 def verify_native_bootstrap_policy(name, profile):
@@ -313,6 +331,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
     elif "locator_cases" in profile:
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
+    elif "checkpoint_cases" in profile:
+        verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
     elif profile["method"] == "native":
         require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
                 "native fixture hash does not match the acquisition ledger")

@@ -102,6 +102,19 @@
         "fsroot_sha256": "080baefd59d8c407c3b7987f4565b3d10dc365378e9b9efe4a0dfd156befe04b"
       }
     },
+    "checkpoint-model-properties": {
+      "obligation": "A-V02",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-checkpoint-model.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"candidate_xids": 2, "descriptor_ring_slots": 8, "cases": 147},
+      "checkpoint_cases": {
+        "states": ["Complete", "AbsentDescriptor", "TornDescriptor", "BlankMap", "MismatchedMap", "UnsupportedMap", "UnreadablePayload"],
+        "requests": ["automatic", "1", "2"]
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",
