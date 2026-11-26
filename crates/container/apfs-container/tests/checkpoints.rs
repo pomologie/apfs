@@ -11,6 +11,8 @@ mod exact;
 mod fixture;
 #[path = "checkpoint_selection/hosted_parity.rs"]
 mod hosted_parity;
+#[path = "../verification/checkpoint_layouts.rs"]
+mod layouts;
 #[path = "../verification/checkpoint_selection.rs"]
 mod model;
 #[path = "checkpoint_selection/namespaces.rs"]

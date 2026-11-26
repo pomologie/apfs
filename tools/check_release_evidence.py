@@ -10,7 +10,8 @@ import subprocess
 import sys
 
 from apfs_evidence_transcript import (
-    EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_model, verify_checksum_differential,
+    EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
+    verify_checksum_differential,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_tlc,
 )
 
@@ -128,6 +129,9 @@ def verify_method_policy(name, profile):
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
     elif method == "property":
+        if "checkpoint_layouts" in profile:
+            verify_checkpoint_layout_policy(name, profile)
+            return
         if "checkpoint_cases" in profile:
             verify_checkpoint_model_policy(name, profile)
             return
@@ -195,6 +199,24 @@ def verify_checkpoint_model_policy(name, profile):
             and text_list(requests) and len(set(requests)) == bounds["candidate_xids"] + 1
             and len(set(requests)) == len(requests) and "automatic" in requests
             and len(states) ** 2 * len(requests) == bounds["cases"], f"incomplete checkpoint scenario matrix for {name}")
+
+
+def verify_checkpoint_layout_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"checkpoint_layouts", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid checkpoint layout policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"first_xid", "cases"} and all(positive_integer(value) for value in bounds.values()),
+            f"invalid checkpoint layout bounds for {name}")
+    matrix = profile["checkpoint_layouts"]
+    require(isinstance(matrix, dict) and set(matrix) == {"ring_slots", "candidate_counts", "placements", "orders"},
+            f"invalid checkpoint layout matrix for {name}")
+    for axis in ("ring_slots", "candidate_counts"):
+        values = matrix[axis]
+        require(isinstance(values, list) and values and all(positive_integer(value) for value in values)
+                and len(set(values)) == len(values), f"invalid checkpoint layout axis {axis}")
+    require(matrix["placements"] == ["Start", "Middle", "Wrap"] and matrix["orders"] == ["Ascending", "Descending"]
+            and min(matrix["ring_slots"]) >= 2 * max(matrix["candidate_counts"]),
+            f"incomplete checkpoint layout matrix for {name}")
 
 
 def verify_native_bootstrap_policy(name, profile):
@@ -333,6 +355,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:
         verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
+    elif "checkpoint_layouts" in profile:
+        verify_checkpoint_layouts(transcript, profile["checkpoint_layouts"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "native":
         require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
                 "native fixture hash does not match the acquisition ledger")

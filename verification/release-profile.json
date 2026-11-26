@@ -115,6 +115,21 @@
         "requests": ["automatic", "1", "2"]
       }
     },
+    "checkpoint-layout-properties": {
+      "obligation": "A-V02",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-checkpoint-layouts.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"first_xid": 16, "cases": 180},
+      "checkpoint_layouts": {
+        "ring_slots": [8, 16, 32],
+        "candidate_counts": [1, 3, 4],
+        "placements": ["Start", "Middle", "Wrap"],
+        "orders": ["Ascending", "Descending"]
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",

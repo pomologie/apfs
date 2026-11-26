@@ -32,6 +32,8 @@ LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 CHECKPOINT_MODEL_PREFIX = "APFS checkpoint model "
 CHECKPOINT_MODEL_SUCCESS = "APFS checkpoint model completed"
+CHECKPOINT_LAYOUT_PREFIX = "APFS checkpoint layout "
+CHECKPOINT_LAYOUT_SUCCESS = "APFS checkpoint layouts completed"
 STORED_CHECKSUM_BYTES = 8
 FLETCHER_WORD_BYTES = 4
 
@@ -164,6 +166,24 @@ def verify_checkpoint_model(transcript, cases, versions):
                        for request in cases["requests"])
     actual = Counter(line for line in lines[:-1] if line.startswith(CHECKPOINT_MODEL_PREFIX))
     require(actual == expected, "missing, duplicate, or unexpected checkpoint model scenarios")
+
+
+def verify_checkpoint_layouts(transcript, matrix, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "checkpoint layouts transcript has the wrong Rust version")
+    require(lines[-1:] == [CHECKPOINT_LAYOUT_SUCCESS] and lines.count(CHECKPOINT_LAYOUT_SUCCESS) == 1,
+            "checkpoint layouts run did not complete")
+    expected = Counter()
+    for slots in matrix["ring_slots"]:
+        for count in matrix["candidate_counts"]:
+            orders = matrix["orders"][:1] if count == 1 else matrix["orders"]
+            requests = ["automatic", *map(str, range(bounds["first_xid"], bounds["first_xid"] + count))]
+            expected.update(f"{CHECKPOINT_LAYOUT_PREFIX}{slots} {count} {placement} {order} {request}"
+                            for placement in matrix["placements"] for order in orders for request in requests)
+    require(expected.total() == bounds["cases"], "checkpoint layout matrix disagrees with the case bound")
+    actual = Counter(line for line in lines if line.startswith(CHECKPOINT_LAYOUT_PREFIX))
+    require(actual == expected, "missing, duplicate, or unexpected checkpoint layout cases")
 
 
 def verify_native_bootstrap(transcript, fixture, bounds, versions):

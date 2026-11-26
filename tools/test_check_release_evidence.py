@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
-from apfs_evidence_transcript import verify_checkpoint_model, verify_locator_properties
+from apfs_evidence_transcript import verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties
 
 
 PROFILE = "format-kani"
@@ -413,6 +413,27 @@ APFS locator properties completed
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_checkpoint_model(transcript.replace(old, replacement), cases, versions)
+
+    def test_checkpoint_layout_transcript_checks_exact_ring_and_request(self):
+        transcript = """rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS checkpoint layout 8 1 Wrap Ascending automatic
+APFS checkpoint layout 8 1 Wrap Ascending 16
+APFS checkpoint layouts completed
+"""
+        matrix = {"ring_slots": [8], "candidate_counts": [1], "placements": ["Wrap"], "orders": ["Ascending"]}
+        bounds = {"first_xid": 16, "cases": 2}
+        versions = {"rustc": "1.99.1"}
+        verify_checkpoint_layouts(transcript, matrix, bounds, versions)
+        row = "APFS checkpoint layout 8 1 Wrap Ascending 16"
+        for old, replacement, expected in (
+            (row, "", "checkpoint layout cases"),
+            (row, f"{row}\n{row}", "checkpoint layout cases"),
+            (" 16", " 17", "checkpoint layout cases"),
+            (" 8 1 Wrap", " 16 1 Wrap", "checkpoint layout cases"),
+            ("layouts completed", "layouts interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                verify_checkpoint_layouts(transcript.replace(old, replacement), matrix, bounds, versions)
 
 
     def test_native_replay_passes_as_partial_evidence(self):
