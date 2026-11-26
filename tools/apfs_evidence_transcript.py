@@ -212,6 +212,23 @@ def verify_native_windows(transcript, fixtures, bounds, versions):
             "missing, duplicate, or unexpected native window scenarios")
 
 
+def verify_complete_objects(transcript, sizes, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
+            and lines.count(f"proptest v{versions['proptest']}") == 1,
+            "complete object transcript has the wrong tool versions")
+    require(lines.count(f"APFS complete object seed {bounds['seed']}") == 1, "wrong complete object property seed")
+    completion = "APFS complete object properties completed"
+    require(lines[-1:] == [completion] and lines.count(completion) == 1, "complete object property run did not complete")
+    prefix = "APFS complete object property "
+    count = bounds["cases_per_block_size"]
+    windows = count * bounds["checksum_windows_per_object"]
+    ranges = count * bounds["byte_ranges_per_object"]
+    expected = Counter(f"{prefix}{size} {count} {windows} {ranges}" for size in sizes)
+    require(Counter(line for line in lines if line.startswith(prefix)) == expected,
+            "missing, duplicate, or unexpected complete object property scenarios")
+
+
 def verify_checkpoint_model(transcript, cases, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,

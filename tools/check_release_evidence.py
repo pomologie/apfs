@@ -11,7 +11,7 @@ import sys
 
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
-    NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_native_geometry,
+    NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     verify_native_windows, verify_tlc,
 )
@@ -148,6 +148,9 @@ def verify_method_policy(name, profile):
         if "window_cases" in profile:
             verify_native_window_policy(name, profile)
             return
+        if "complete_object_cases" in profile:
+            verify_complete_object_policy(name, profile)
+            return
         require(set(profile) == PROFILE_FIELDS | {"property_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid bootstrap property policy for {name}")
         cases = profile["property_cases"]
@@ -235,6 +238,19 @@ def verify_native_window_policy(name, profile):
     fixtures = profile["window_cases"]
     require(text_mapping(fixtures) and fixtures and all(re.fullmatch(r"[0-9a-f]{16}", checksum)
             for checksum in fixtures.values()), f"invalid native window checksums for {name}")
+
+
+def verify_complete_object_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"complete_object_cases", "partial"} and profile["partial"] is True
+            and {"rustc", "proptest"} <= profile["tool_versions"].keys(), f"invalid complete object policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"seed", "cases_per_block_size", "checksum_windows_per_object", "byte_ranges_per_object",
+                            "scalar_bits"}
+            and all(positive_integer(value) for value in bounds.values())
+            and (bounds["checksum_windows_per_object"], bounds["byte_ranges_per_object"], bounds["scalar_bits"])
+            == (5, 3, 64), f"invalid complete object bounds for {name}")
+    require(profile["complete_object_cases"] == [4096, 8192, 16384, 32768, 65536],
+            f"incomplete supported block sizes for {name}")
 
 
 def verify_checkpoint_model_policy(name, profile):
@@ -424,6 +440,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         require(record.get("seed") == str(profile["bounds"]["seed"]), "locator seed does not match profile")
     if "span_cases" in profile:
         require(record.get("seed") == str(profile["bounds"]["seed"]), "geometry span seed does not match profile")
+    if "complete_object_cases" in profile:
+        require(record.get("seed") == str(profile["bounds"]["seed"]), "complete object seed does not match profile")
     require((proof is None and "proof" not in record) or (proof is not None and record.get("proof") == proof),
             "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
@@ -445,6 +463,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_span_properties(transcript, profile["span_cases"], profile["bounds"], profile["tool_versions"])
     elif "window_cases" in profile:
         verify_native_windows(transcript, profile["window_cases"], profile["bounds"], profile["tool_versions"])
+    elif "complete_object_cases" in profile:
+        verify_complete_objects(transcript, profile["complete_object_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:
         verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
     elif "checkpoint_layouts" in profile:

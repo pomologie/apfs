@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use apfs_format::{
 	Error,
-	object::checksum,
+	object::{Header, ObjectId, TransactionId, checksum},
 	superblock::{Area, AreaLocation, BlockAddress, Geometry, Superblock},
 };
 use proptest::{
@@ -23,6 +23,15 @@ const CHECKSUM_BYTES: usize = size_of::<u64>();
 const MAX_SPAN_ENTRIES: usize = 8;
 const NATIVE_BLOCK_BYTES: u32 = 4096;
 const NATIVE_DEVICE_BYTES: u64 = 64 << 20;
+const OBJECT_TRANSACTION_OFFSET: usize = 16;
+const NEXT_TRANSACTION_OFFSET: usize = 96;
+const NXSB_TYPE: u32 = 0x8000_0001;
+const NXSB_ID: ObjectId = ObjectId(1);
+const NXSB_SUBTYPE: u32 = 0;
+const WORD_BYTES: usize = size_of::<u32>();
+const WIRE_HEADER_BYTES: usize = 32;
+const FLETCHER_MODULUS: u128 = u32::MAX as u128;
+const FIRST_OBJECT_MAP: u64 = 3;
 
 const DESCRIPTOR: Layout = Layout {
 	name: "descriptor",
@@ -95,9 +104,7 @@ fn generated_nxsb_locators_match_the_independent_wide_model() {
 				.run(
 					&cases,
 					|(size, position, raw_count, next, index, length)| {
-						let minimum = MIN_CONTAINER_BYTES / u64::from(block_bytes);
-						let maximum = u64::MAX / u64::from(block_bytes);
-						let blocks = minimum + size % (maximum - minimum + 1);
+						let blocks = generated_block_count(block_bytes, size);
 						let cursor = Cursor {
 							next,
 							index,
@@ -148,9 +155,7 @@ fn generated_supported_span_sets_match_widened_endpoints() {
 	for block_bytes in BLOCK_SIZES {
 		check_span_sets("synthetic", block_bytes, |sample| {
 			let size = u64::from(block_bytes);
-			let minimum = MIN_CONTAINER_BYTES / size;
-			let maximum = u64::MAX / size;
-			let blocks = minimum + sample % (maximum - minimum + 1);
+			let blocks = generated_block_count(block_bytes, sample);
 			let mut object = superblock(block_bytes, blocks);
 			let check = checksum(&object).unwrap();
 			object[..CHECKSUM_BYTES].copy_from_slice(&check.to_le_bytes());
@@ -159,6 +164,106 @@ fn generated_supported_span_sets_match_widened_endpoints() {
 			geometry
 		});
 	}
+}
+
+#[test]
+fn generated_complete_nxsb_objects_match_widened_checksums_and_ranges() {
+	println!("\nAPFS complete object seed {SEED}");
+	for block_bytes in BLOCK_SIZES {
+		let completed = Cell::new(0);
+		let windows = Cell::new(0);
+		let ranges = Cell::new(0);
+		runner()
+			.run(&any::<(u64, u64, u64)>(), |(size, transaction, address)| {
+				let blocks = generated_block_count(block_bytes, size);
+				let xid = transaction.clamp(1, u64::MAX - 1);
+				let object_map = FIRST_OBJECT_MAP + address % (blocks - FIRST_OBJECT_MAP);
+				let mut object = superblock(block_bytes, blocks);
+				put(&mut object, OBJECT_TRANSACTION_OFFSET, xid.to_le_bytes());
+				put(
+					&mut object,
+					NEXT_TRANSACTION_OFFSET,
+					(xid + 1).to_le_bytes(),
+				);
+				put(&mut object, OBJECT_MAP_OFFSET, object_map.to_le_bytes());
+				let expected = reference_checksum(&object);
+				put(&mut object, 0, expected.to_le_bytes());
+
+				let header = Header::decode(&object).unwrap();
+				prop_assert_eq!(header.checksum, expected);
+				prop_assert_eq!(header.id, NXSB_ID);
+				prop_assert_eq!(header.transaction, TransactionId(xid));
+				prop_assert_eq!(header.object_type, NXSB_TYPE);
+				prop_assert_eq!(header.subtype, NXSB_SUBTYPE);
+				let size = u128::from(block_bytes);
+				let device_bytes = u64::try_from(u128::from(blocks) * size).unwrap();
+				let accepted = Superblock::decode(&object, device_bytes).unwrap();
+				prop_assert_eq!(accepted.object, header);
+				prop_assert_eq!(accepted.next_transaction, TransactionId(xid + 1));
+				prop_assert_eq!(accepted.object_map, BlockAddress(object_map));
+				prop_assert_eq!(accepted.geometry.block_bytes(), block_bytes);
+				prop_assert_eq!(accepted.geometry.block_count(), blocks);
+
+				for length in [
+					WIRE_HEADER_BYTES,
+					WIRE_HEADER_BYTES + WORD_BYTES,
+					object.len() / 2,
+					object.len() - WORD_BYTES,
+					object.len(),
+				] {
+					let prefix = &object[..length];
+					prop_assert_eq!(Header::type_hint(prefix), Ok(NXSB_TYPE));
+					prop_assert_eq!(checksum(prefix), Ok(reference_checksum(prefix)));
+					windows.set(windows.get() + 1);
+				}
+				for (first, count) in [(0, blocks), (object_map, 1), (blocks, 0)] {
+					let start = u64::try_from(u128::from(first) * size).unwrap();
+					let end =
+						u64::try_from((u128::from(first) + u128::from(count)) * size).unwrap();
+					prop_assert_eq!(
+						accepted.geometry.byte_range(BlockAddress(first), count),
+						Ok(start..end)
+					);
+					ranges.set(ranges.get() + 1);
+				}
+				completed.set(completed.get() + 1);
+				Ok(())
+			})
+			.unwrap();
+		assert_eq!(completed.get(), CASES);
+		println!(
+			"APFS complete object property {block_bytes} {} {} {}",
+			completed.get(),
+			windows.get(),
+			ranges.get(),
+		);
+	}
+}
+
+fn generated_block_count(block_bytes: u32, sample: u64) -> u64 {
+	let size = u64::from(block_bytes);
+	let minimum = MIN_CONTAINER_BYTES / size;
+	let maximum = u64::MAX / size;
+	minimum + sample % (maximum - minimum + 1)
+}
+
+fn reference_checksum(object: &[u8]) -> u64 {
+	let (words, rest) = object[CHECKSUM_BYTES..].as_chunks::<WORD_BYTES>();
+	assert!(rest.is_empty());
+	let weights = (1..=words.len() as u128).rev();
+	let (sum, weighted) =
+		words
+			.iter()
+			.zip(weights)
+			.fold((0, 0), |(sum, weighted), (word, weight)| {
+				let word = u128::from(u32::from_le_bytes(*word));
+				(sum + word, weighted + word * weight)
+			});
+	// Appending the two check words must zero both Fletcher residues. Solve
+	// the sum and weighted-sum equations, choosing nonzero wire representatives.
+	let low = FLETCHER_MODULUS - (sum + weighted) % FLETCHER_MODULUS;
+	let high = 1 + ((weighted + FLETCHER_MODULUS - 1) % FLETCHER_MODULUS);
+	(u64::try_from(high).unwrap() << u32::BITS) | u64::try_from(low).unwrap()
 }
 
 fn check_span_sets(source: &str, block_bytes: u32, admit: impl Fn(u64) -> Geometry) {

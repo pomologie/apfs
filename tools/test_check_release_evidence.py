@@ -11,7 +11,7 @@ import unittest
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
     verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
-    verify_native_geometry,
+    verify_complete_objects, verify_native_geometry,
     verify_native_windows,
     verify_span_properties,
 )
@@ -437,6 +437,28 @@ APFS span properties completed
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):
                 verify_native_windows(transcript.replace(old, replacement), fixtures, bounds, versions)
+
+    def test_complete_objects_require_each_size_and_its_compared_windows_and_ranges(self):
+        transcript = "\n".join([
+            "rustc 1.99.1 (test)", "proptest v1.12.0", "APFS complete object seed 7",
+            "APFS complete object property 4096 64 320 192",
+            "APFS complete object property 65536 64 320 192",
+            "APFS complete object properties completed",
+        ])
+        sizes = [4096, 65536]
+        bounds = {"seed": 7, "cases_per_block_size": 64, "checksum_windows_per_object": 5,
+                  "byte_ranges_per_object": 3}
+        versions = {"rustc": "1.99.1", "proptest": "1.12.0"}
+        verify_complete_objects(transcript, sizes, bounds, versions)
+        for old, replacement, error in (
+            ("seed 7", "seed 8", "seed"),
+            ("65536 64", "4096 64", "property scenarios"),
+            ("320 192", "319 192", "property scenarios"),
+            ("320 192", "320 191", "property scenarios"),
+            ("properties completed", "properties interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):
+                verify_complete_objects(transcript.replace(old, replacement), sizes, bounds, versions)
 
     def test_checkpoint_model_transcript_requires_each_state_and_request_pair(self):
         cases = {"states": ["Complete", "TornDescriptor"], "requests": ["automatic", "1", "2"]}
