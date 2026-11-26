@@ -64,6 +64,7 @@ APFS bootstrap property geometry 4096 7 3 24
 APFS bootstrap property checksum-window 65 9
 APFS bootstrap property required-feature 63
 APFS bootstrap property typed-required-feature 4034 16136
+APFS bootstrap property mixed-feature-cutoff 4096 32
 APFS bootstrap properties completed
 """
 NATIVE_PROFILE = "bootstrap-native"
@@ -190,7 +191,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                        "incompatible_feature_bits": 64},
             "property_cases": {"size-prefix": [[5, 7]], "geometry": [[4096, 7, 3, 24]],
                                "checksum-window": [[65, 9]], "required-feature": [[63]],
-                               "typed-required-feature": [[4034, 16136]]},
+                               "typed-required-feature": [[4034, 16136]], "mixed-feature-cutoff": [[4096, 32]]},
         }
         self.policy["profiles"][BOOTSTRAP_PROFILE] = profile
         self.registry["methods"]["property"] = "property test"
@@ -374,6 +375,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
         cases = [("4096 7 3 24", "4096 7 1 8", "bootstrap property scenarios"),
                  ("checksum-window 65 9", "checksum-window 65 8", "bootstrap property scenarios"),
                  ("typed-required-feature 4034 16136", "typed-required-feature 4033 16132", "bootstrap property scenarios"),
+                 ("mixed-feature-cutoff 4096 32", "mixed-feature-cutoff 4096 31", "bootstrap property scenarios"),
                  (line, "", "bootstrap property scenarios"),
                  (line, f"{line}\n{line}", "bootstrap property scenarios"),
                  ("properties completed", "properties interrupted", "did not complete"),

@@ -35,7 +35,8 @@ CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
 BOOTSTRAP_PROPERTY_COLUMNS = {
-    "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1, "typed-required-feature": 2,
+    "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1,
+    "typed-required-feature": 2, "mixed-feature-cutoff": 2,
 }
 NATIVE_BOOTSTRAP_HASH_FIELDS = {"ledger_sha256", "raw_sha256", "metadata_sha256", "bootstrap_sha256", "fsroot_sha256"}
 NATIVE_BOOTSTRAP_ID_FIELDS = {"os_version", "os_build", "architecture", "oracle_version"}

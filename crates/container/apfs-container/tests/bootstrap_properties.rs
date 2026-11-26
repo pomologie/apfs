@@ -17,6 +17,8 @@ const BOOTSTRAP: ByteOffset = ByteOffset(0);
 const CHECKSUM_BYTES: usize = size_of::<u64>();
 const BLOCK_SIZE: usize = 36;
 const BLOCK_COUNT: usize = 40;
+const OPTIONAL: usize = 48;
+const READ_ONLY_COMPATIBLE: usize = 56;
 const INCOMPATIBLE: usize = 64;
 const DESCRIPTOR_COUNT: usize = 104;
 const DATA_COUNT: usize = 108;
@@ -25,6 +27,10 @@ const DATA_BASE: usize = 120;
 const OBJECT_MAP: usize = 160;
 const KNOWN_FEATURE_BIT: u32 = 1;
 const KNOWN_PROFILE: u64 = 1 << KNOWN_FEATURE_BIT;
+const OPTIONAL_DEFRAG: u64 = 1;
+const READ_ONLY_EXTENSION: u64 = 1 << 63;
+const REQUIRED_EXTENSION_A: u64 = 1 << 62;
+const REQUIRED_EXTENSION_B: u64 = 1 << 63;
 const HEADER_BYTES: usize = 32;
 const WORD_BYTES: usize = 4;
 const HEADER_SAMPLE_BYTES: usize = 64;
@@ -59,17 +65,8 @@ fn nxsb_size_prefix_matches_supported_block_dimensions() {
 fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 	println!();
 	for size in BLOCK_SIZES {
-		let mut block = NATIVE.to_vec();
-		block.resize(size as usize, 0);
-		put(&mut block, BLOCK_SIZE, size.to_le_bytes());
-		// Use two one-block rings and a map that fit even the smallest extent.
-		put(&mut block, DESCRIPTOR_COUNT, 1_u32.to_le_bytes());
-		put(&mut block, DATA_COUNT, 1_u32.to_le_bytes());
-		put(&mut block, DESCRIPTOR_BASE, 1_u64.to_le_bytes());
-		put(&mut block, DATA_BASE, 2_u64.to_le_bytes());
-		put(&mut block, OBJECT_MAP, 3_u64.to_le_bytes());
-
 		let min_blocks = MIN_CONTAINER_BYTES / u64::from(size);
+		let mut block = single_store_nxsb(size, min_blocks);
 		let max_blocks = u64::MAX / u64::from(size);
 		let cases = [
 			(min_blocks - 1, MIN_CONTAINER_BYTES),
@@ -186,6 +183,78 @@ fn each_additional_required_feature_bit_stops_before_traversal() {
 		feature_bits += 1;
 	}
 	println!("\nAPFS bootstrap property required-feature {feature_bits}");
+}
+
+#[test]
+fn mixed_feature_masks_stop_both_open_paths_at_each_supported_size() {
+	let expected_xid = Header::decode(NATIVE).unwrap().transaction;
+	let unsupported = [
+		0,
+		KNOWN_PROFILE | REQUIRED_EXTENSION_A,
+		KNOWN_PROFILE | REQUIRED_EXTENSION_B,
+		KNOWN_PROFILE | REQUIRED_EXTENSION_A | REQUIRED_EXTENSION_B,
+	];
+	let compatible = [
+		(0, 0),
+		(OPTIONAL_DEFRAG, 0),
+		(0, READ_ONLY_EXTENSION),
+		(OPTIONAL_DEFRAG, READ_ONLY_EXTENSION),
+	];
+	println!();
+	for size in BLOCK_SIZES {
+		let mut block = single_store_nxsb(size, DEVICE_BYTES / u64::from(size));
+		let mut refused_opens = 0;
+		for required in unsupported {
+			for (optional, read_only) in compatible {
+				put(&mut block, OPTIONAL, optional.to_le_bytes());
+				put(&mut block, READ_ONLY_COMPATIBLE, read_only.to_le_bytes());
+				put(&mut block, INCOMPATIBLE, required.to_le_bytes());
+				seal(&mut block);
+				let decoded = Superblock::decode(&block, DEVICE_BYTES).unwrap();
+				assert_eq!(
+					(
+						decoded.features,
+						decoded.read_only_compatible,
+						decoded.incompatible
+					),
+					(optional, read_only, required)
+				);
+				for transaction in [None, Some(expected_xid)] {
+					let source = BlockZero {
+						block: &block,
+						device_bytes: DEVICE_BYTES,
+						reads: Cell::new(0),
+					};
+					let options = OpenOptions::default();
+					let result = match transaction {
+						Some(xid) => Container::open_at(&source, options, xid),
+						None => Container::open(&source, options),
+					};
+					assert!(matches!(result, Err(Error::Unsupported {
+						descriptor: BlockAddress(0), transaction: xid,
+						reason: Unsupported::IncompatibleFeatures(bits),
+					}) if xid == expected_xid && bits == required));
+					assert_eq!(source.reads.get(), 2);
+					refused_opens += 1;
+				}
+			}
+		}
+		println!("APFS bootstrap property mixed-feature-cutoff {size} {refused_opens}");
+	}
+}
+
+fn single_store_nxsb(size: u32, count: u64) -> Vec<u8> {
+	let mut block = NATIVE.to_vec();
+	block.resize(size as usize, 0);
+	put(&mut block, BLOCK_SIZE, size.to_le_bytes());
+	put(&mut block, BLOCK_COUNT, count.to_le_bytes());
+	// Use two one-block rings and a map that fit even the smallest extent.
+	put(&mut block, DESCRIPTOR_COUNT, 1_u32.to_le_bytes());
+	put(&mut block, DATA_COUNT, 1_u32.to_le_bytes());
+	put(&mut block, DESCRIPTOR_BASE, 1_u64.to_le_bytes());
+	put(&mut block, DATA_BASE, 2_u64.to_le_bytes());
+	put(&mut block, OBJECT_MAP, 3_u64.to_le_bytes());
+	block
 }
 
 fn put<const N: usize>(bytes: &mut [u8], offset: usize, field: [u8; N]) {
