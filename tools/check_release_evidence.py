@@ -12,7 +12,8 @@ import sys
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_native_geometry,
-    verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_tlc,
+    verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
+    verify_tlc,
 )
 
 
@@ -141,6 +142,9 @@ def verify_method_policy(name, profile):
         if "locator_cases" in profile:
             verify_locator_policy(name, profile)
             return
+        if "span_cases" in profile:
+            verify_span_policy(name, profile)
+            return
         require(set(profile) == PROFILE_FIELDS | {"property_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid bootstrap property policy for {name}")
         cases = profile["property_cases"]
@@ -206,6 +210,18 @@ def verify_locator_policy(name, profile):
     scenarios = cases["scenarios"]
     require(text_list(scenarios) and scenarios and len(set(scenarios)) == len(scenarios),
             f"incomplete locator scenarios for {name}")
+
+
+def verify_span_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"span_cases", "partial"} and profile["partial"] is True
+            and {"rustc", "proptest"} <= profile["tool_versions"].keys(), f"invalid span policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"seed", "cases_per_shape", "max_entries", "boundary_ranges", "scalar_bits"}
+            and all(positive_integer(value) for value in bounds.values())
+            and (bounds["max_entries"], bounds["boundary_ranges"], bounds["scalar_bits"]) == (8, 3, 64),
+            f"invalid geometry span bounds for {name}")
+    require(profile["span_cases"] == {"native": [4096], "synthetic": [4096, 8192, 16384, 32768, 65536]},
+            f"incomplete geometry span source profiles for {name}")
 
 
 def verify_checkpoint_model_policy(name, profile):
@@ -393,6 +409,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         require(record.get("seed") == str(profile["bounds"]["seed"]), "TLC seed does not match profile")
     if "locator_cases" in profile:
         require(record.get("seed") == str(profile["bounds"]["seed"]), "locator seed does not match profile")
+    if "span_cases" in profile:
+        require(record.get("seed") == str(profile["bounds"]["seed"]), "geometry span seed does not match profile")
     require((proof is None and "proof" not in record) or (proof is not None and record.get("proof") == proof),
             "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
@@ -410,6 +428,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
     elif "locator_cases" in profile:
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
+    elif "span_cases" in profile:
+        verify_span_properties(transcript, profile["span_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:
         verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
     elif "checkpoint_layouts" in profile:

@@ -89,6 +89,16 @@
         "scenarios": ["contiguous-boundary", "fragment-locator", "beyond-source", "offset-overflow", "empty-ring", "missing-base", "raw-fields"]
       }
     },
+    "geometry-span-properties": {
+      "obligation": "A-V01",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-span-properties.sh"],
+      "tool_versions": {"rustc": "1.99.1", "proptest": "1.12.0"},
+      "bounds": {"seed": 7, "cases_per_shape": 64, "max_entries": 8, "boundary_ranges": 3, "scalar_bits": 64},
+      "span_cases": {"native": [4096], "synthetic": [4096, 8192, 16384, 32768, 65536]}
+    },
     "bootstrap-native": {
       "obligation": "A-V01",
       "method": "native",

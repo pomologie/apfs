@@ -1,7 +1,9 @@
+use std::cell::Cell;
+
 use apfs_format::{
 	Error,
 	object::checksum,
-	superblock::{Area, AreaLocation, BlockAddress, Superblock},
+	superblock::{Area, AreaLocation, BlockAddress, Geometry, Superblock},
 };
 use proptest::{
 	prelude::*,
@@ -18,6 +20,9 @@ const BLOCK_SIZE_OFFSET: usize = 36;
 const BLOCK_COUNT_OFFSET: usize = 40;
 const OBJECT_MAP_OFFSET: usize = 160;
 const CHECKSUM_BYTES: usize = size_of::<u64>();
+const MAX_SPAN_ENTRIES: usize = 8;
+const NATIVE_BLOCK_BYTES: u32 = 4096;
+const NATIVE_DEVICE_BYTES: u64 = 64 << 20;
 
 const DESCRIPTOR: Layout = Layout {
 	name: "descriptor",
@@ -84,14 +89,7 @@ fn generated_nxsb_locators_match_the_independent_wide_model() {
 	);
 	for layout in [&DESCRIPTOR, &DATA] {
 		for block_bytes in BLOCK_SIZES {
-			let config = Config {
-				cases: CASES,
-				failure_persistence: None,
-				rng_algorithm: RngAlgorithm::ChaCha,
-				rng_seed: RngSeed::Fixed(SEED),
-				..Config::default()
-			};
-			let mut runner = TestRunner::new(config);
+			let mut runner = runner();
 			let counts = std::cell::RefCell::new([0; SCENARIO_NAMES.len()]);
 			runner
 				.run(
@@ -134,6 +132,86 @@ fn generated_nxsb_locators_match_the_independent_wide_model() {
 			}
 		}
 	}
+}
+
+#[test]
+fn generated_supported_span_sets_match_widened_endpoints() {
+	println!("\nAPFS span seed {SEED}");
+	let native = Superblock::decode(NATIVE, NATIVE_DEVICE_BYTES)
+		.unwrap()
+		.geometry;
+	assert_eq!(
+		native.block_count(),
+		NATIVE_DEVICE_BYTES / u64::from(NATIVE_BLOCK_BYTES)
+	);
+	check_span_sets("native", NATIVE_BLOCK_BYTES, |_| native);
+	for block_bytes in BLOCK_SIZES {
+		check_span_sets("synthetic", block_bytes, |sample| {
+			let size = u64::from(block_bytes);
+			let minimum = MIN_CONTAINER_BYTES / size;
+			let maximum = u64::MAX / size;
+			let blocks = minimum + sample % (maximum - minimum + 1);
+			let mut object = superblock(block_bytes, blocks);
+			let check = checksum(&object).unwrap();
+			object[..CHECKSUM_BYTES].copy_from_slice(&check.to_le_bytes());
+			let geometry = Superblock::decode(&object, blocks * size).unwrap().geometry;
+			assert_eq!(geometry.block_count(), blocks);
+			geometry
+		});
+	}
+}
+
+fn check_span_sets(source: &str, block_bytes: u32, admit: impl Fn(u64) -> Geometry) {
+	for entries in 0..=MAX_SPAN_ENTRIES {
+		let cases = (
+			any::<u64>(),
+			proptest::collection::vec(any::<(u64, u64)>(), entries),
+		);
+		let completed = Cell::new(0);
+		let checked_ranges = Cell::new(0);
+		runner()
+			.run(&cases, |(entropy, spans)| {
+				let geometry = admit(entropy);
+				let blocks = geometry.block_count();
+				prop_assert_eq!(geometry.block_bytes(), block_bytes);
+				prop_assert_eq!(spans.len(), entries);
+				let ranges = spans.into_iter().map(|(position, length)| {
+					let start = position % (blocks + 1);
+					(start, length % (blocks - start + 1))
+				});
+				let boundaries = [(0, blocks), (blocks - 1, 1), (blocks, 0)];
+				for (start, length) in ranges.chain(boundaries) {
+					let size = u128::from(block_bytes);
+					let first = u128::from(start) * size;
+					let end = (u128::from(start) + u128::from(length)) * size;
+					let expected = u64::try_from(first).unwrap()..u64::try_from(end).unwrap();
+					prop_assert_eq!(
+						geometry.byte_range(BlockAddress(start), length),
+						Ok(expected)
+					);
+					checked_ranges.set(checked_ranges.get() + 1);
+				}
+				completed.set(completed.get() + 1);
+				Ok(())
+			})
+			.unwrap();
+		assert_eq!(completed.get(), CASES);
+		println!(
+			"APFS span property {source} {block_bytes} {entries} {} {}",
+			completed.get(),
+			checked_ranges.get(),
+		);
+	}
+}
+
+fn runner() -> TestRunner {
+	TestRunner::new(Config {
+		cases: CASES,
+		failure_persistence: None,
+		rng_algorithm: RngAlgorithm::ChaCha,
+		rng_seed: RngSeed::Fixed(SEED),
+		..Config::default()
+	})
 }
 
 const SCENARIO_NAMES: [&str; 7] = [

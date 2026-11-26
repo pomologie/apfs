@@ -181,6 +181,23 @@ def verify_locator_properties(transcript, cases, bounds, versions):
     require(actual == expected, "missing, duplicate, or unexpected locator property scenarios")
 
 
+def verify_span_properties(transcript, cases, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
+            and lines.count(f"proptest v{versions['proptest']}") == 1,
+            "span transcript has the wrong tool versions")
+    require(lines.count(f"APFS span seed {bounds['seed']}") == 1, "wrong span property seed")
+    completion = "APFS span properties completed"
+    require(lines[-1:] == [completion] and lines.count(completion) == 1, "span property run did not complete")
+    prefix = "APFS span property "
+    runs = bounds["cases_per_shape"]
+    paths = Counter(f"{prefix}{profile} {size} {entries} {runs} {(entries + bounds['boundary_ranges']) * runs}"
+                    for profile, sizes in cases.items() for size in sizes
+                    for entries in range(bounds["max_entries"] + 1))
+    require(Counter(line for line in lines if line.startswith(prefix)) == paths,
+            "missing, duplicate, or unexpected span property scenarios")
+
+
 def verify_checkpoint_model(transcript, cases, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,

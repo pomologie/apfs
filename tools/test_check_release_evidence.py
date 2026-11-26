@@ -12,6 +12,7 @@ from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, ar
 from apfs_evidence_transcript import (
     verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
     verify_native_geometry,
+    verify_span_properties,
 )
 
 
@@ -397,6 +398,27 @@ APFS locator properties completed
         ]:
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_locator_properties(transcript.replace(old, replacement), cases, bounds, versions)
+
+    def test_span_transcript_requires_zero_entries_and_each_bound_query(self):
+        transcript = """rustc 1.99.1 (test)
+proptest v1.12.0
+APFS span seed 7
+APFS span property native 4096 0 64 192
+APFS span property native 4096 1 64 256
+APFS span properties completed
+"""
+        cases = {"native": [4096]}
+        bounds = {"seed": 7, "cases_per_shape": 64, "max_entries": 1, "boundary_ranges": 3}
+        versions = {"rustc": "1.99.1", "proptest": "1.12.0"}
+        verify_span_properties(transcript, cases, bounds, versions)
+        for old, replacement, expected in (
+            ("APFS span seed 7", "APFS span seed 8", "seed"),
+            ("native 4096 0 64 192", "native 4096 1 64 256", "span property scenarios"),
+            ("64 256", "64 255", "span property scenarios"),
+            ("span properties completed", "span properties interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                verify_span_properties(transcript.replace(old, replacement), cases, bounds, versions)
 
     def test_checkpoint_model_transcript_requires_each_state_and_request_pair(self):
         cases = {"states": ["Complete", "TornDescriptor"], "requests": ["automatic", "1", "2"]}
