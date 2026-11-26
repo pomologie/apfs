@@ -26,6 +26,8 @@ CHECKSUM_PREFIX = "APFS checksum "
 CHECKSUM_SUCCESS = "APFS checksum differential completed"
 BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
+LOCATOR_PROPERTY_PREFIX = "APFS locator property "
+LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 STORED_CHECKSUM_BYTES = 8
 FLETCHER_WORD_BYTES = 4
 
@@ -130,3 +132,18 @@ def verify_bootstrap_properties(transcript, cases, versions):
                        for case, rows in cases.items() for values in rows)
     actual = Counter(line for line in lines if line.startswith(BOOTSTRAP_PROPERTY_PREFIX))
     require(actual == expected, "missing, duplicate, or unexpected bootstrap property scenarios")
+
+
+def verify_locator_properties(transcript, cases, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
+            and sum(line.endswith(f"proptest v{versions['proptest']}") for line in lines) == 1,
+            "locator transcript has the wrong tool versions")
+    require(lines.count(f"APFS locator seed {bounds['seed']}") == 1, "wrong locator property seed")
+    require(lines[-1:] == [LOCATOR_PROPERTY_SUCCESS] and lines.count(LOCATOR_PROPERTY_SUCCESS) == 1,
+            "locator property run did not complete")
+    expected = Counter(f"{LOCATOR_PROPERTY_PREFIX}{layout} {size} {scenario} {bounds['cases_per_scenario']}"
+                       for layout in cases["layouts"] for size in cases["block_sizes"]
+                       for scenario in cases["scenarios"])
+    actual = Counter(line for line in lines if line.startswith(LOCATOR_PROPERTY_PREFIX))
+    require(actual == expected, "missing, duplicate, or unexpected locator property scenarios")

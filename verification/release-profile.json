@@ -61,6 +61,20 @@
         "required-feature": [[63]]
       }
     },
+    "locator-properties": {
+      "obligation": "A-V01",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-locator-properties.sh"],
+      "tool_versions": {"rustc": "1.99.1", "proptest": "1.12.0"},
+      "bounds": {"seed": 7, "cases_per_scenario": 64, "address_bits": 64, "area_field_bits": 32},
+      "locator_cases": {
+        "layouts": ["descriptor", "data"],
+        "block_sizes": [4096, 8192, 16384, 32768, 65536],
+        "scenarios": ["contiguous-boundary", "fragment-locator", "beyond-source", "offset-overflow", "empty-ring", "missing-base", "raw-fields"]
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",

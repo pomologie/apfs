@@ -10,7 +10,8 @@ import subprocess
 import sys
 
 from apfs_evidence_transcript import (
-    EvidenceError, require, verify_bootstrap_properties, verify_checksum_differential, verify_kani, verify_tlc,
+    EvidenceError, require, verify_bootstrap_properties, verify_checksum_differential,
+    verify_kani, verify_locator_properties, verify_tlc,
 )
 
 
@@ -124,6 +125,9 @@ def verify_method_policy(name, profile):
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
     elif method == "property":
+        if "locator_cases" in profile:
+            verify_locator_policy(name, profile)
+            return
         require(set(profile) == PROFILE_FIELDS | {"property_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid bootstrap property policy for {name}")
         cases = profile["property_cases"]
@@ -152,6 +156,22 @@ def verify_checksum_policy(name, cases, bounds):
     require(isinstance(words, list) and words and all(type(word) is int and 0 <= word <= UINT32_MAX for word in words)
             and len(set(words)) == len(words) and bounds["distinct_word"] not in words,
             f"invalid checksum word patterns for {name}")
+
+
+def verify_locator_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"locator_cases", "partial"} and profile["partial"] is True
+            and {"rustc", "proptest"} <= profile["tool_versions"].keys(), f"invalid locator policy for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"seed", "cases_per_scenario", "address_bits", "area_field_bits"}
+            and all(positive_integer(value) for value in bounds.values()), f"invalid locator bounds for {name}")
+    cases = profile["locator_cases"]
+    require(isinstance(cases, dict) and set(cases) == {"layouts", "block_sizes", "scenarios"},
+            f"invalid locator matrix for {name}")
+    require(cases["layouts"] == ["descriptor", "data"] and cases["block_sizes"] == [4096, 8192, 16384, 32768, 65536],
+            f"incomplete locator layouts or block sizes for {name}")
+    scenarios = cases["scenarios"]
+    require(text_list(scenarios) and scenarios and len(set(scenarios)) == len(scenarios),
+            f"incomplete locator scenarios for {name}")
 
 
 def required_matrix(policy, registry, requested_profile):
@@ -255,6 +275,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         model = profile["model"]
         proof.update(states=model["states"], distinct_states=model["distinct_states"])
         require(record.get("seed") == str(profile["bounds"]["seed"]), "TLC seed does not match profile")
+    if "locator_cases" in profile:
+        require(record.get("seed") == str(profile["bounds"]["seed"]), "locator seed does not match profile")
     require((proof is None and "proof" not in record) or (proof is not None and record.get("proof") == proof),
             "proof metadata does not match profile")
     transcript = read_artifacts(artifacts_root, record["artifacts"])
@@ -264,6 +286,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
         verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
+    elif "locator_cases" in profile:
+        verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
     else:
         verify_bootstrap_properties(transcript, profile["property_cases"], profile["tool_versions"])
 

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
+from apfs_evidence_transcript import verify_locator_properties
 
 
 PROFILE = "format-kani"
@@ -336,6 +337,26 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.set_transcript(BOOTSTRAP_TRANSCRIPT.replace(old, replacement))
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 self.check([self.record], BOOTSTRAP_PROFILE)
+
+    def test_locator_transcripts_require_seed_tool_and_each_case(self):
+        transcript = """rustc 1.99.1 (58cf8f9c3 2026-10-13)
+└── proptest v1.12.0
+APFS locator seed 7
+APFS locator property descriptor 4096 fragment-locator 64
+APFS locator properties completed
+"""
+        cases = {"layouts": ["descriptor"], "block_sizes": [4096], "scenarios": ["fragment-locator"]}
+        bounds = {"seed": 7, "cases_per_scenario": 64}
+        versions = {"rustc": "1.99.1", "proptest": "1.12.0"}
+        verify_locator_properties(transcript, cases, bounds, versions)
+        for old, replacement, expected in [
+            ("seed 7", "seed 8", "seed"), ("v1.12.0", "v1.11.0", "tool versions"),
+            ("fragment-locator 64", "fragment-locator 63", "property scenarios"),
+            ("descriptor 4096", "data 4096", "property scenarios"),
+            ("properties completed", "properties interrupted", "did not complete"),
+        ]:
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                verify_locator_properties(transcript.replace(old, replacement), cases, bounds, versions)
 
 
 if __name__ == "__main__":
