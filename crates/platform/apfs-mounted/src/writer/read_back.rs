@@ -2,6 +2,7 @@ use std::{fs::File, io};
 
 use crate::{
 	dataless::ContentError,
+	metadata::{MetadataView, ObservationError},
 	source::{read_positioned, read_positioned_exact},
 };
 
@@ -37,6 +38,22 @@ impl ReadBack<'_> {
 	/// Whether the logical length is zero.
 	pub const fn is_empty(&self) -> bool {
 		self.len() == 0
+	}
+
+	/// Observe metadata on the independent read-only descriptor.
+	/// The live held and named state is checked before and after the observation.
+	/// # Errors
+	/// Returns metadata, identity, process or materialization policy failures.
+	pub fn with_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.stage.location.check_process()?;
+		without_materialization(LifecycleEffect::Observed, || {
+			self.stage
+				.location
+				.with_metadata(&self.file, &self.stage.observed, observe)
+		})
 	}
 
 	/// Read the exact requested range, with live checks before and after I/O.

@@ -5,11 +5,14 @@ use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, Stat};
 use crate::{
 	Directory, EntryName, EventHandle,
 	identity::ObjectIdentity,
-	metadata::{AccessModificationTimes, MAX_EXTENDED_SECURITY_BYTES, extended_security},
+	metadata::{
+		AccessModificationTimes, MAX_EXTENDED_SECURITY_BYTES, MetadataView, ObjectFlags,
+		ObservationError, extended_security,
+	},
 	stored_name,
 };
 
-use super::WriterError;
+use super::{BirthTimePolicy, WriterError};
 
 pub(super) const PRIVATE_OPEN: OFlags = OFlags::CLOEXEC
 	.union(OFlags::NONBLOCK)
@@ -122,6 +125,18 @@ impl<'dir> Location<'dir> {
 		}
 	}
 
+	pub(super) fn with_metadata<T>(
+		&self,
+		file: &File,
+		expected: &Snapshot,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.revalidate(file, expected)?;
+		let result = observe(MetadataView::new(file.as_fd()));
+		self.revalidate(file, expected)?;
+		Ok(result?)
+	}
+
 	pub(super) fn revalidate_anchor(&self, expected: &Snapshot) -> Result<Snapshot, WriterError> {
 		let current = self.observe_anchor(expected.extent)?;
 		if current.same_live(expected) {
@@ -136,6 +151,7 @@ impl<'dir> Location<'dir> {
 		file: &File,
 		expected: &Snapshot,
 		times: AccessModificationTimes,
+		policy: BirthTimePolicy,
 	) -> Result<Snapshot, WriterError> {
 		let identity = ObjectIdentity::held(file)?;
 		let previous = self.identity;
@@ -153,10 +169,14 @@ impl<'dir> Location<'dir> {
 			times.modification.seconds(),
 			times.modification.nanoseconds(),
 		);
+		let permitted_birth = match policy {
+			BirthTimePolicy::Preserve => birth,
+			BirthTimePolicy::AllowDarwinAdjustment => birth.min(modification),
+		};
 		if identity.mount() != previous.mount()
 			|| identity.inode() != previous.inode()
 			|| identity.generation() != previous.generation()
-			|| (current_birth != birth && current_birth != birth.min(modification))
+			|| (current_birth != birth && current_birth != permitted_birth)
 		{
 			return Err(WriterError::Changed);
 		}
@@ -170,10 +190,14 @@ impl<'dir> Location<'dir> {
 
 	pub(super) fn revalidate_times(
 		&self,
+		file: &File,
 		expected: &Snapshot,
 		times: AccessModificationTimes,
 	) -> Result<(), WriterError> {
-		let current = self.revalidate_anchor(expected)?;
+		let current = self.observe(file, expected.extent)?;
+		if !current.same_live(expected) {
+			return Err(WriterError::Changed);
+		}
 		let named = Snapshot::capture(
 			fs::statat(
 				self.directory,
@@ -222,6 +246,10 @@ impl Snapshot {
 			return Err(WriterError::Changed);
 		}
 		Ok(Self { stat, extent })
+	}
+
+	pub(super) const fn flags(&self) -> ObjectFlags {
+		ObjectFlags::from_raw(self.stat.st_flags)
 	}
 
 	pub(super) fn same_layout(&self, other: &Self) -> bool {

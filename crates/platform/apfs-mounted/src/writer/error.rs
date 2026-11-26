@@ -3,7 +3,7 @@ use std::{error::Error, fmt, io};
 use crate::{
 	dataless::{ContentError, PolicyError, ScopeError, with_materialization_disabled},
 	identity::IdentityError,
-	metadata::{ApplyError, ObservationError},
+	metadata::{ApplyError, ObjectFlags, ObservationError},
 };
 
 use super::BarrierError;
@@ -29,8 +29,15 @@ pub enum WriterError {
 	Occupied,
 	CreateUncertain(io::Error),
 	CreatedButUnverified(Box<Self>),
+	/// The full-file barrier returned success before live revalidation failed.
+	/// A checked close has yet to be confirmed.
+	BarrierPassedButUnverified(Box<Self>),
 	ClosedButUnverified(Box<Self>),
 	TimesAppliedButUnverified(Box<Self>),
+	/// The caller required zero initial flags and the created entry had flags set.
+	UnexpectedInitialFlags {
+		actual: ObjectFlags,
+	},
 	Changed,
 	NotPrivate,
 	WrongProcess,
@@ -45,6 +52,8 @@ pub enum WriterError {
 	TimesMismatch,
 	Identity(IdentityError),
 	Metadata(ObservationError),
+	/// The caller rejected metadata or another policy prerequisite in a scoped check.
+	MetadataRefused(Box<dyn Error + Send + Sync>),
 	Io(io::Error),
 	Configure {
 		error: PolicyError,
@@ -69,6 +78,12 @@ impl fmt::Display for WriterError {
 				f,
 				"the created private file could not be verified ({error})"
 			),
+			Self::BarrierPassedButUnverified(error) => {
+				write!(
+					f,
+					"full-file synchronization succeeded but revalidation failed ({error})"
+				)
+			}
 			Self::ClosedButUnverified(error) => {
 				write!(f, "the closed private file could not be verified ({error})")
 			}
@@ -76,6 +91,13 @@ impl fmt::Display for WriterError {
 				f,
 				"applied timestamps could not be verified or synchronized ({error})"
 			),
+			Self::UnexpectedInitialFlags { actual } => {
+				write!(
+					f,
+					"the created private file has BSD flags {:#x}",
+					actual.raw()
+				)
+			}
 			Self::Changed => {
 				f.write_str("the private file's live name, identity, metadata or extent changed")
 			}
@@ -100,6 +122,9 @@ impl fmt::Display for WriterError {
 			}
 			Self::Identity(error) => fmt::Display::fmt(error, f),
 			Self::Metadata(error) => fmt::Display::fmt(error, f),
+			Self::MetadataRefused(error) => {
+				write!(f, "the caller refused stage metadata ({error})")
+			}
 			Self::Io(error) => fmt::Display::fmt(error, f),
 			Self::Configure { error, restoration } => {
 				write!(f, "could not disable materialization ({error})")?;
@@ -130,6 +155,7 @@ impl Error for WriterError {
 			| Self::Close(error)
 			| Self::Io(error) => Some(error),
 			Self::CreatedButUnverified(error)
+			| Self::BarrierPassedButUnverified(error)
 			| Self::ClosedButUnverified(error)
 			| Self::TimesAppliedButUnverified(error) => Some(error),
 			Self::Read(error) => Some(error),
@@ -137,6 +163,7 @@ impl Error for WriterError {
 			Self::Times(error) => Some(error),
 			Self::Identity(error) => Some(error),
 			Self::Metadata(error) => Some(error),
+			Self::MetadataRefused(error) => Some(error.as_ref()),
 			Self::Configure { error, .. } | Self::Restore { error, .. } => Some(error),
 			_ => None,
 		}

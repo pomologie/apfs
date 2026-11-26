@@ -1,13 +1,20 @@
 //! Private file lifecycle operations for a caller-authorized mounted APFS directory.
 
-use std::{fs::File, io, os::fd::IntoRawFd, os::unix::fs::FileExt};
+use std::{
+	fs::File,
+	io,
+	os::fd::{AsFd, IntoRawFd},
+	os::unix::fs::FileExt,
+};
 
 use rustix::fs::{self, OFlags};
 
 use crate::{
 	Directory, EntryName, EventHandle,
 	identity::ObjectIdentity,
-	metadata::{AccessModificationTimes, set_times},
+	metadata::{
+		AccessModificationTimes, ApplyError, MetadataView, ObjectFlags, ObservationError, set_times,
+	},
 };
 
 mod barrier;
@@ -30,6 +37,44 @@ pub const MAX_PRIVATE_IO_BYTES: usize = 1024 * 1024;
 
 const MAX_WRITE_INTERRUPTS: usize = 16;
 const MAX_FILE_EXTENT: u64 = i64::MAX as u64;
+
+/// Caller-selected admission rule for the initial stage's BSD flags.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum InitialFlags {
+	/// Admit any initial flags. The existing live checks still require them to stay unchanged.
+	AllowStable,
+	/// Refuse an initial observation with any flag set.
+	RequireZero,
+}
+
+impl InitialFlags {
+	fn check(self, actual: ObjectFlags) -> Result<(), WriterError> {
+		if self == Self::RequireZero && actual.raw() != 0 {
+			return Err(WriterError::UnexpectedInitialFlags { actual });
+		}
+		Ok(())
+	}
+}
+
+/// Caller-selected acceptance rule for the birth time after timestamp installation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BirthTimePolicy {
+	/// Accept only the original birth time.
+	Preserve,
+	/// Also accept Darwin lowering the birth time to the requested modification time.
+	AllowDarwinAdjustment,
+}
+
+/// Point at which the caller checks metadata during timestamp installation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum MetadataCheckPhase {
+	/// Before changing any timestamps.
+	BeforeUpdate,
+	/// After the timestamp update and before the full-file barrier.
+	AfterUpdate,
+	/// After the full-file barrier.
+	AfterBarrier,
+}
 
 /// Sole writable handle for one newly created private file and declared extent.
 ///
@@ -54,6 +99,19 @@ impl<'dir> PrivateWriter<'dir> {
 		name: &'dir EntryName,
 		extent: u64,
 	) -> Result<Self, WriterError> {
+		Self::create_with_initial_flags(directory, name, extent, InitialFlags::AllowStable)
+	}
+
+	/// Exclusively create a private file and apply the selected initial flag rule.
+	/// # Errors
+	/// In addition to the errors from [Self::create], refusal of the initial flags
+	/// returns [WriterError::CreatedButUnverified] and retains the entry.
+	pub fn create_with_initial_flags(
+		directory: &'dir Directory,
+		name: &'dir EntryName,
+		extent: u64,
+		flags: InitialFlags,
+	) -> Result<Self, WriterError> {
 		if extent > MAX_FILE_EXTENT {
 			return Err(WriterError::InvalidRange);
 		}
@@ -73,6 +131,7 @@ impl<'dir> PrivateWriter<'dir> {
 			let admit = || {
 				let location = Location::capture(directory, name, extent, parent, &file)?;
 				let observed = location.observe(&file, 0)?;
+				flags.check(observed.flags())?;
 				Ok(Self {
 					location,
 					file: Some(file),
@@ -92,6 +151,21 @@ impl<'dir> PrivateWriter<'dir> {
 	/// Position of the end of the last verified write.
 	pub const fn position(&self) -> u64 {
 		self.position
+	}
+
+	/// Query metadata on the held writer with live name and identity checks on both sides.
+	/// # Errors
+	/// Returns an error for a retired writer, failed observations, or a materialization
+	/// policy failure. Discard the result when revalidation fails.
+	pub fn with_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.location.check_process()?;
+		let file = self.file.as_ref().ok_or(WriterError::Retired)?;
+		without_materialization(LifecycleEffect::Observed, || {
+			self.location.with_metadata(file, &self.observed, observe)
+		})
 	}
 
 	/// Write the next nonempty contiguous chunk at its declared offset.
@@ -149,7 +223,9 @@ impl<'dir> PrivateWriter<'dir> {
 		without_materialization(LifecycleEffect::Closed, || {
 			self.location.revalidate(&file, &self.observed)?;
 			barrier(&file).map_err(WriterError::Barrier)?;
-			self.location.revalidate(&file, &self.observed)?;
+			self.location
+				.revalidate(&file, &self.observed)
+				.map_err(|error| WriterError::BarrierPassedButUnverified(Box::new(error)))?;
 			close(file)?;
 			self.location
 				.revalidate_anchor(&self.observed)
@@ -185,6 +261,16 @@ impl<'dir> ClosedFile<'dir> {
 		self.len() == 0
 	}
 
+	/// Query metadata through an independent read-only handle to the same private entry.
+	/// # Errors
+	/// Returns read-only admission, metadata, identity, or policy failures.
+	pub fn with_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.open_read_back()?.with_metadata(observe)
+	}
+
 	/// Install and flush final access and modification times after independent read-back.
 	/// Darwin may move the file's birth time to an earlier modification time.
 	/// The returned capability reports the identity revalidated after that update.
@@ -192,30 +278,90 @@ impl<'dir> ClosedFile<'dir> {
 	/// Refuses changed observations or unequal read-back and reports a failed
 	/// timestamp update, barrier, or policy operation. The entry is retained.
 	pub fn apply_times(
+		self,
+		times: AccessModificationTimes,
+	) -> Result<MetadataReadyFile<'dir>, WriterError> {
+		self.apply_times_with_birth_policy(times, BirthTimePolicy::AllowDarwinAdjustment)
+	}
+
+	/// Install final timestamps under the selected birth-time rule and synchronize the inode.
+	/// A birth-time refusal is reported after the update. The file remains at its private name.
+	/// # Errors
+	/// Returns pre-update observation failures, update errors, or
+	/// [WriterError::TimesAppliedButUnverified] after a successful update whose validation or
+	/// synchronization failed. Any materialization policy failure is reported separately.
+	pub fn apply_times_with_birth_policy(
+		self,
+		times: AccessModificationTimes,
+		birth_policy: BirthTimePolicy,
+	) -> Result<MetadataReadyFile<'dir>, WriterError> {
+		self.apply_times_checked(times, birth_policy, |_, _| Ok(()))
+	}
+
+	/// Install, verify and synchronize timestamps with caller-selected metadata checks.
+	/// Each check receives a view of the same independently opened read-only descriptor.
+	/// Callers may capture their live lease and return a policy refusal with
+	/// [WriterError::MetadataRefused].
+	/// # Errors
+	/// A refusal before the update leaves timestamps untouched. A refusal after the
+	/// update is reported as [WriterError::TimesAppliedButUnverified]. The private entry
+	/// is retained. See [Self::apply_times_with_birth_policy] for other failures.
+	pub fn apply_times_checked(
+		self,
+		times: AccessModificationTimes,
+		birth_policy: BirthTimePolicy,
+		check: impl FnMut(MetadataCheckPhase, MetadataView<'_>) -> Result<(), WriterError>,
+	) -> Result<MetadataReadyFile<'dir>, WriterError> {
+		self.apply_times_checked_with(times, birth_policy, check, |file| full_file_sync(file))
+	}
+
+	fn apply_times_checked_with(
 		mut self,
 		times: AccessModificationTimes,
+		birth_policy: BirthTimePolicy,
+		mut check: impl FnMut(MetadataCheckPhase, MetadataView<'_>) -> Result<(), WriterError>,
+		barrier: impl FnOnce(&File) -> Result<(), BarrierError>,
 	) -> Result<MetadataReadyFile<'dir>, WriterError> {
 		self.location.check_process()?;
 		without_materialization(LifecycleEffect::TimesApplied, || {
 			self.location.revalidate_anchor(&self.observed)?;
 			let descriptor = self.location.open_read_only(&self.observed)?;
-			let reported = set_times(&descriptor, times).map_err(WriterError::Times)?;
-			let mut verify_and_flush = || {
+			let mut check = |phase| check(phase, MetadataView::new(descriptor.as_fd()));
+			check(MetadataCheckPhase::BeforeUpdate)?;
+			self.location.revalidate(&descriptor, &self.observed)?;
+			let reported = set_times(&descriptor, times).map_err(|error| {
+				if matches!(error, ApplyError::ReadBack(_)) {
+					WriterError::TimesAppliedButUnverified(Box::new(WriterError::Times(error)))
+				} else {
+					WriterError::Times(error)
+				}
+			})?;
+			let verify_and_flush = || {
 				if reported != times {
 					return Err(WriterError::TimesMismatch);
 				}
-				let observed =
-					self.location
-						.confirm_time_update(&descriptor, &self.observed, times)?;
-				full_file_sync(&descriptor).map_err(WriterError::Barrier)?;
-				self.location.revalidate(&descriptor, &observed)?;
-				self.location.revalidate_times(&observed, times)?;
+				let observed = self.location.confirm_time_update(
+					&descriptor,
+					&self.observed,
+					times,
+					birth_policy,
+				)?;
+				check(MetadataCheckPhase::AfterUpdate)?;
+				self.location
+					.revalidate_times(&descriptor, &observed, times)?;
+				barrier(&descriptor).map_err(WriterError::Barrier)?;
+				self.location
+					.revalidate_times(&descriptor, &observed, times)?;
+				check(MetadataCheckPhase::AfterBarrier)?;
+				self.location
+					.revalidate_times(&descriptor, &observed, times)?;
 				Ok(observed)
 			};
 			let observed = verify_and_flush()
 				.map_err(|error| WriterError::TimesAppliedButUnverified(Box::new(error)))?;
 			Ok(MetadataReadyFile {
 				location: self.location,
+				descriptor,
 				observed,
 				times,
 			})
@@ -224,10 +370,11 @@ impl<'dir> ClosedFile<'dir> {
 }
 
 /// Closed, synchronized private file with its final timestamps installed.
-/// This capability retains an event-only anchor for metadata observations.
+/// It retains a read-only descriptor and the original event-only anchor.
 #[derive(Debug)]
 pub struct MetadataReadyFile<'dir> {
 	location: Location<'dir>,
+	descriptor: File,
 	observed: Snapshot,
 	times: AccessModificationTimes,
 }
@@ -248,14 +395,33 @@ impl MetadataReadyFile<'_> {
 		self.times
 	}
 
+	/// Query the synchronized file's metadata while checking its held and named state.
+	/// # Errors
+	/// Returns identity, timestamp, metadata, process or policy failures.
+	pub fn with_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.location.check_process()?;
+		without_materialization(LifecycleEffect::Observed, || {
+			self.revalidate_final()?;
+			let result = observe(MetadataView::new(self.descriptor.as_fd()));
+			self.revalidate_final()?;
+			Ok(result?)
+		})
+	}
+
 	/// Verify that the live inode, name, extent and timestamps still match.
 	/// # Errors
 	/// Returns identity, metadata, process or policy failures.
 	pub fn revalidate(&self) -> Result<(), WriterError> {
 		self.location.check_process()?;
-		without_materialization(LifecycleEffect::Observed, || {
-			self.location.revalidate_times(&self.observed, self.times)
-		})
+		without_materialization(LifecycleEffect::Observed, || self.revalidate_final())
+	}
+
+	fn revalidate_final(&self) -> Result<(), WriterError> {
+		self.location
+			.revalidate_times(&self.descriptor, &self.observed, self.times)
 	}
 }
 
