@@ -18,6 +18,8 @@ use crate::{
 	identity::{IdentityError, ObjectIdentity},
 	lease::{Lease, LeaseError},
 	metadata::{MetadataView, ObjectFlags, ObservationError},
+	publication::EventEntry,
+	stored_name,
 };
 
 mod admission;
@@ -205,6 +207,7 @@ pub struct PinnedSource<'root> {
 	initial: Stat,
 	metadata: SourceMetadata,
 	lease: Option<&'root Lease>,
+	exact_anchor: Option<&'root EventEntry<'root>>,
 }
 
 impl PinnedSource<'_> {
@@ -317,6 +320,7 @@ impl PinnedSource<'_> {
 		self.root_identity.revalidate_held(self.root)?;
 		self.identity.revalidate_held(&self.file)?;
 		self.identity.revalidate_named(self.root, self.name)?;
+		validate_exact_anchor(self.exact_anchor, self.name, self.identity)?;
 		let held = fs::fstat(&self.file)?;
 		let named = stat_name(self.root, self.name)?.ok_or(SourceError::Changed)?;
 		if !same_stamp(&held, &self.initial) || !same_stamp(&named, &self.initial) {
@@ -324,6 +328,23 @@ impl PinnedSource<'_> {
 		}
 		Ok(())
 	}
+}
+
+fn validate_exact_anchor(
+	anchor: Option<&EventEntry<'_>>,
+	name: &EntryName,
+	identity: ObjectIdentity,
+) -> Result<(), SourceError> {
+	if let Some(anchor) = anchor {
+		if *anchor.identity() != identity {
+			return Err(SourceError::Changed);
+		}
+		identity.revalidate_held(anchor.handle())?;
+		if stored_name(anchor.handle()).map_err(SourceError::Io)? != *name {
+			return Err(SourceError::Changed);
+		}
+	}
+	Ok(())
 }
 
 fn stat_name(root: &Directory, name: &EntryName) -> Result<Option<Stat>, SourceError> {

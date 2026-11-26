@@ -19,7 +19,7 @@ pub const MAX_ENTRY_NAME_BYTES: usize = 255;
 const NO_FOLLOW: OFlags = OFlags::NOFOLLOW
 	.union(OFlags::CLOEXEC)
 	.union(OFlags::NONBLOCK);
-const EVENT_ONLY: OFlags = OFlags::from_bits_retain(libc::O_EVTONLY as u32);
+pub(crate) const EVENT_ONLY: OFlags = OFlags::from_bits_retain(libc::O_EVTONLY as u32);
 const PRIVATE_DIRECTORY: Mode = Mode::RUSR.union(Mode::WUSR).union(Mode::XUSR);
 
 /// One owned component, preserving the supplied bytes.

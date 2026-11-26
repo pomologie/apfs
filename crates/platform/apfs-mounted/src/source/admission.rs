@@ -5,10 +5,14 @@ use rustix::{
 	io::Errno,
 };
 
-use crate::{Directory, EntryName, identity::ObjectIdentity, lease::Lease};
+use crate::{
+	Directory, EntryName, identity::ObjectIdentity, lease::Lease, publication::EventEntry,
+	scope::EVENT_ONLY,
+};
 
 use super::{
 	PinnedSource, SourceError, SourceMetadata, content_error, same_stamp, stat_name, under_policy,
+	validate_exact_anchor,
 };
 
 const READ_FLAGS: OFlags = OFlags::RDONLY
@@ -23,7 +27,7 @@ impl<'root> PinnedSource<'root> {
 	/// file, or if the thread's materialization policy cannot be established
 	/// or restored.
 	pub fn open(root: &'root Directory, name: &'root EntryName) -> Result<Self, SourceError> {
-		Self::open_inner(root, name, None, |_, _| Ok(()))
+		Self::open_inner(root, name, None, None, |_, _| Ok(()))
 	}
 
 	/// Observe the named file, run caller admission, then open it for data.
@@ -48,13 +52,23 @@ impl<'root> PinnedSource<'root> {
 		lease: &'root Lease,
 		admit: impl FnOnce(&ObjectIdentity, SourceMetadata) -> Result<(), SourceError>,
 	) -> Result<Self, SourceError> {
-		Self::open_inner(root, name, Some(lease), admit)
+		Self::open_inner(root, name, Some(lease), None, admit)
+	}
+
+	pub(crate) fn open_anchored(
+		anchor: &'root EventEntry<'root>,
+		lease: &'root Lease,
+		admit: impl FnOnce(&ObjectIdentity, SourceMetadata) -> Result<(), SourceError>,
+	) -> Result<Self, SourceError> {
+		let (root, name) = anchor.location();
+		Self::open_inner(root, name, Some(lease), Some(anchor), admit)
 	}
 
 	fn open_inner(
 		root: &'root Directory,
 		name: &'root EntryName,
 		lease: Option<&'root Lease>,
+		exact_anchor: Option<&'root EventEntry<'root>>,
 		admit: impl FnOnce(&ObjectIdentity, SourceMetadata) -> Result<(), SourceError>,
 	) -> Result<Self, SourceError> {
 		under_policy(|| {
@@ -73,6 +87,7 @@ impl<'root> PinnedSource<'root> {
 				return Err(SourceError::Unsupported);
 			}
 			let metadata = SourceMetadata::from_stat(&observed)?;
+			validate_exact_anchor(exact_anchor, name, identity)?;
 			admit(&identity, metadata)?;
 
 			validate_lease(lease, root_identity)?;
@@ -82,6 +97,7 @@ impl<'root> PinnedSource<'root> {
 			if current != identity || !same_stamp(&current_stamp, &observed) {
 				return Err(SourceError::Changed);
 			}
+			validate_exact_anchor(exact_anchor, name, identity)?;
 			let fd =
 				fs::openat(root, name.as_c_str(), READ_FLAGS, Mode::empty()).map_err(|error| {
 					match error {
@@ -89,6 +105,14 @@ impl<'root> PinnedSource<'root> {
 						error => content_error(error.into()),
 					}
 				})?;
+			if exact_anchor.is_some() {
+				let flags = fs::fcntl_getfl(&fd)?;
+				if flags.intersection(OFlags::ACCMODE) != OFlags::RDONLY
+					|| flags.contains(EVENT_ONLY)
+				{
+					return Err(SourceError::Unsupported);
+				}
+			}
 			let file = File::from(fd);
 			let initial = fs::fstat(&file)?;
 			if !same_stamp(&initial, &observed) {
@@ -103,6 +127,7 @@ impl<'root> PinnedSource<'root> {
 				initial,
 				metadata,
 				lease,
+				exact_anchor,
 			};
 			source.validate_state()?;
 			Ok(source)

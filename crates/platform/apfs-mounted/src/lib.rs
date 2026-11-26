@@ -9,6 +9,7 @@ pub mod identity;
 pub mod lease;
 pub mod metadata;
 pub mod publication;
+pub mod recovery;
 mod scope;
 pub mod source;
 pub mod volume;

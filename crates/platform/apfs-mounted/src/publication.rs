@@ -50,7 +50,15 @@ pub struct EventEntry<'location> {
 	identity: ObjectIdentity,
 }
 
-impl EventEntry<'_> {
+impl<'location> EventEntry<'location> {
+	pub(crate) const fn location(&self) -> (&'location Directory, &'location EntryName) {
+		(self.directory, self.name)
+	}
+
+	pub(crate) const fn handle(&self) -> &EventHandle {
+		&self.file
+	}
+
 	/// Returns the identity originally captured for this anchor.
 	#[must_use]
 	pub const fn identity(&self) -> &ObjectIdentity {
