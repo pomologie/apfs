@@ -9,7 +9,9 @@ import re
 import subprocess
 import sys
 
-from apfs_evidence_transcript import EvidenceError, require, verify_checksum_differential, verify_kani, verify_tlc
+from apfs_evidence_transcript import (
+    EvidenceError, require, verify_bootstrap_properties, verify_checksum_differential, verify_kani, verify_tlc,
+)
 
 
 POLICY_PATH = "verification/release-profile.json"
@@ -29,6 +31,7 @@ TLC_BOUND_FIELDS = {"candidate_xids", "ring_slots", "workers", "seed", "fingerpr
 CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
+BOOTSTRAP_PROPERTY_COLUMNS = {"size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1}
 
 
 def unique_object(pairs):
@@ -120,6 +123,17 @@ def verify_method_policy(name, profile):
         require(set(profile) == PROFILE_FIELDS | {"checksum_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
+    elif method == "property":
+        require(set(profile) == PROFILE_FIELDS | {"property_cases", "partial"} and profile["partial"] is True
+                and "rustc" in versions, f"invalid bootstrap property policy for {name}")
+        cases = profile["property_cases"]
+        require(isinstance(cases, dict) and set(cases) == BOOTSTRAP_PROPERTY_COLUMNS.keys(),
+                f"incomplete bootstrap property coverage for {name}")
+        for case, columns in BOOTSTRAP_PROPERTY_COLUMNS.items():
+            rows = cases[case]
+            require(isinstance(rows, list) and rows and all(isinstance(row, list) and len(row) == columns
+                    and all(positive_integer(value) for value in row) for row in rows)
+                    and len({tuple(row) for row in rows}) == len(rows), f"invalid {case} rows for {name}")
     else:
         raise EvidenceError(f"no transcript verifier for {name}")
 
@@ -236,7 +250,7 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             "incomplete invocation provenance")
     require(json.dumps(record["bounds"], sort_keys=True) == json.dumps(profile["bounds"], sort_keys=True),
             "proof bounds do not match profile")
-    proof = None if profile["method"] == "differential" else {"theorem": name}
+    proof = {"theorem": name} if profile["method"] in {"kani", "tlc"} else None
     if profile["method"] == "tlc":
         model = profile["model"]
         proof.update(states=model["states"], distinct_states=model["distinct_states"])
@@ -248,8 +262,10 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_kani(transcript, profile["harnesses"], profile["tool_versions"])
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
-    else:
+    elif profile["method"] == "differential":
         verify_checksum_differential(transcript, profile["checksum_cases"], profile["bounds"], profile["tool_versions"])
+    else:
+        verify_bootstrap_properties(transcript, profile["property_cases"], profile["tool_versions"])
 
 
 def validate(root, bundle, requested_profile):

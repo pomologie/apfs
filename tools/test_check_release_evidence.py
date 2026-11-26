@@ -50,6 +50,14 @@ APFS checksum singleton 4096 0 2048 305419896
 APFS checksum singleton 4096 0 4092 305419896
 APFS checksum differential completed
 """
+BOOTSTRAP_PROFILE = "bootstrap-properties"
+BOOTSTRAP_TRANSCRIPT = """rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS bootstrap property size-prefix 5 7
+APFS bootstrap property geometry 4096 7 3 24
+APFS bootstrap property checksum-window 65 9
+APFS bootstrap property required-feature 63
+APFS bootstrap properties completed
+"""
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -146,6 +154,27 @@ class ReleaseEvidenceTests(unittest.TestCase):
         )
         del self.record["proof"]
         self.set_transcript(CHECKSUM_TRANSCRIPT)
+
+    def set_bootstrap_profile(self):
+        profile = {
+            "obligation": "A-V01", "method": "property", "partial": True, "features": [],
+            "command": ["bash", "crates/container/apfs-container/verification/check-bootstrap-properties.sh"],
+            "tool_versions": {"rustc": "1.99.1"},
+            "bounds": {"size_bits": 32, "geometry_bits": 64, "max_header_prefix_bytes": 64,
+                       "incompatible_feature_bits": 64},
+            "property_cases": {"size-prefix": [[5, 7]], "geometry": [[4096, 7, 3, 24]],
+                               "checksum-window": [[65, 9]], "required-feature": [[63]]},
+        }
+        self.policy["profiles"][BOOTSTRAP_PROFILE] = profile
+        self.registry["methods"]["property"] = "property test"
+        self.registry["obligations"][0]["required_methods"].append("property")
+        self.commit_policy()
+        self.record.update(
+            commit=self.commit, source_hash=self.digest, profile=BOOTSTRAP_PROFILE, method="property",
+            command=profile["command"], tool_versions=profile["tool_versions"], bounds=profile["bounds"],
+        )
+        del self.record["proof"]
+        self.set_transcript(BOOTSTRAP_TRANSCRIPT)
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
@@ -287,6 +316,26 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.set_transcript(CHECKSUM_TRANSCRIPT.replace(old, replacement))
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 self.check([self.record], CHECKSUM_PROFILE)
+
+    def test_bootstrap_properties_pass_as_partial_evidence(self):
+        self.set_bootstrap_profile()
+        self.assertEqual(self.check([self.record], BOOTSTRAP_PROFILE), (1, "0.1.0", self.commit))
+        with self.assertRaisesRegex(EvidenceError, "release policy omits A-V01/property"):
+            self.check([self.record])
+
+    def test_bootstrap_properties_require_the_boundary_matrix(self):
+        self.set_bootstrap_profile()
+        line = "APFS bootstrap property required-feature 63"
+        cases = [("4096 7 3 24", "4096 7 1 8", "bootstrap property scenarios"),
+                 ("checksum-window 65 9", "checksum-window 65 8", "bootstrap property scenarios"),
+                 (line, "", "bootstrap property scenarios"),
+                 (line, f"{line}\n{line}", "bootstrap property scenarios"),
+                 ("properties completed", "properties interrupted", "did not complete"),
+                 ("rustc 1.99.1", "rustc 1.100.0", "wrong Rust version")]
+        for old, replacement, expected in cases:
+            self.set_transcript(BOOTSTRAP_TRANSCRIPT.replace(old, replacement))
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
+                self.check([self.record], BOOTSTRAP_PROFILE)
 
 
 if __name__ == "__main__":

@@ -46,6 +46,21 @@
         "uniform_words": [0, 1, 4294967294, 4294967295]
       }
     },
+    "bootstrap-properties": {
+      "obligation": "A-V01",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-bootstrap-properties.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"size_bits": 32, "geometry_bits": 64, "max_header_prefix_bytes": 64, "incompatible_feature_bits": 64},
+      "property_cases": {
+        "size-prefix": [[5, 7]],
+        "geometry": [[4096, 7, 3, 24], [8192, 7, 3, 24], [16384, 7, 3, 24], [32768, 7, 3, 24], [65536, 7, 3, 24]],
+        "checksum-window": [[65, 9]],
+        "required-feature": [[63]]
+      }
+    },
     "checkpoint-tlc": {
       "obligation": "A-V02",
       "method": "tlc",

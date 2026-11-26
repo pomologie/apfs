@@ -24,6 +24,8 @@ TLC_SUCCESS = "Model checking completed. No error has been found."
 TLC_WITNESS_EXIT = "APFS TLC witness exit code: 12"
 CHECKSUM_PREFIX = "APFS checksum "
 CHECKSUM_SUCCESS = "APFS checksum differential completed"
+BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
+BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
 STORED_CHECKSUM_BYTES = 8
 FLETCHER_WORD_BYTES = 4
 
@@ -116,3 +118,15 @@ def verify_checksum_differential(transcript, cases, bounds, versions):
     actual = Counter(line for line in lines[:-1] if line.startswith(CHECKSUM_PREFIX))
     expected = Counter(expected)
     require(actual == expected, "missing, duplicate, or unexpected checksum scenarios")
+
+
+def verify_bootstrap_properties(transcript, cases, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "bootstrap property transcript has the wrong Rust version")
+    require(lines[-1:] == [BOOTSTRAP_PROPERTY_SUCCESS] and lines.count(BOOTSTRAP_PROPERTY_SUCCESS) == 1,
+            "bootstrap property run did not complete")
+    expected = Counter(f"{BOOTSTRAP_PROPERTY_PREFIX}{case} {' '.join(map(str, values))}"
+                       for case, rows in cases.items() for values in rows)
+    actual = Counter(line for line in lines if line.startswith(BOOTSTRAP_PROPERTY_PREFIX))
+    require(actual == expected, "missing, duplicate, or unexpected bootstrap property scenarios")
