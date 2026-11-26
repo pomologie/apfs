@@ -17,6 +17,12 @@ Independent, nonblocking workstream; no APFS functionality required for dmgez 1.
 
 Start by collecting lawful synthetic APFS fixtures across Sequoia-era and selected modern OS versions. Document format evidence gaps, not assume current layout from 2020 reference. Maintain exact unsupported flags and check native behavior. Read-only parser first, then independent writer only with allocator/checkpoint qualification. No public claim of writable support without real crash and fsck evidence. Do not block dmgez or hfsplus releases on APFS research. Package names checked before registry publication.
 
+## v0.1.0 source packages
+
+The dependency order from the normalized Cargo manifests is `libapfs-core`, `apfs-format`, and `apfs-mounted` first, then `apfs-container`, then `apfs-reader`. The foundation crate imports as `apfs_core` in Rust. The five exact package names returned 404 from `cargo owner --list` during the candidate check.
+
+At `5d1dde5`, Cargo 1.99.1 assembled all five archives. Its built-in workspace verifier stopped on a missing checksum for an unpublished sibling. Running the locked package assembly with `--no-verify` and testing the extracted archives in a fresh offline workspace passed 215 tests. Each archive's recorded Git commit and included license files were checked. Package checksums, test output, and the dependency order are in `target/release-candidates/v0.1.0/5d1dde5-cargo/`. The acceptance and obligation gates apply separately from package assembly.
+
 ## Verification integration
 
 The local `VERIFICATION.md` and `verification/obligations.json` define mandatory profile-specific verification gates in addition to the original acceptance tests. Apply ecosystem standard EVS-1 (copy `shared/VERIFICATION.md` as `docs/architecture/ECOSYSTEM_VERIFICATION.md`). No required proof, model check, native test or critical fault gate can be substituted by coverage or a self-generated round trip. `cargo-nextest`, property tests, fuzz/corpus replay, coverage and deterministic architecture checks are required; formal methods activate at the milestones in the obligation registry.
