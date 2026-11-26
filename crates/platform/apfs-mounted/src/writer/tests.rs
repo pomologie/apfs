@@ -5,7 +5,10 @@ use std::{
 	os::unix::fs::{MetadataExt, PermissionsExt},
 };
 
-use crate::metadata::{MAX_EXTENDED_SECURITY_BYTES, Timestamp, XattrVisibility};
+use crate::{
+	Directory, EntryName,
+	metadata::{MAX_EXTENDED_SECURITY_BYTES, Timestamp, XattrVisibility},
+};
 
 use super::*;
 

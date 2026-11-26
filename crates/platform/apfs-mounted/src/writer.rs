@@ -7,17 +7,17 @@ use std::{
 	os::unix::fs::FileExt,
 };
 
-use rustix::fs::{self, OFlags};
-
 use crate::{
-	Directory, EntryName, EventHandle,
+	EventHandle,
 	identity::ObjectIdentity,
 	metadata::{
 		AccessModificationTimes, ApplyError, MetadataView, ObjectFlags, ObservationError, set_times,
 	},
 };
 
+mod artifact;
 mod barrier;
+mod create;
 mod error;
 mod observation;
 mod read_back;
@@ -26,6 +26,9 @@ mod seal;
 #[cfg(test)]
 mod tests;
 
+pub use artifact::{
+	ArtifactCheckPhase, ArtifactError, ArtifactPhase, write_private_artifact_checked,
+};
 pub use barrier::{BarrierError, BarrierKind, full_file_sync, sync_directory};
 pub use error::{LifecycleEffect, WriterError};
 pub use read_back::ReadBack;
@@ -38,7 +41,6 @@ use observation::{Location, Snapshot};
 pub const MAX_PRIVATE_IO_BYTES: usize = 1024 * 1024;
 
 const MAX_WRITE_INTERRUPTS: usize = 16;
-const MAX_FILE_EXTENT: u64 = i64::MAX as u64;
 
 /// Caller-selected admission rule for the initial stage's BSD flags.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -81,59 +83,6 @@ pub struct PrivateWriter<'dir> {
 }
 
 impl<'dir> PrivateWriter<'dir> {
-	/// Exclusively create one private file at a relative name.
-	/// # Errors
-	/// Returns an occupied-name, invalid extent, opening, policy, or observation
-	/// error. Once creation succeeds the name is retained even if admission fails.
-	pub fn create(
-		directory: &'dir Directory,
-		name: &'dir EntryName,
-		extent: u64,
-	) -> Result<Self, WriterError> {
-		Self::create_with_initial_flags(directory, name, extent, InitialFlags::AllowStable)
-	}
-
-	/// Exclusively create a private file and apply the selected initial flag rule.
-	/// # Errors
-	/// In addition to the errors from [Self::create], refusal of the initial flags
-	/// returns [WriterError::CreatedButUnverified] and retains the entry.
-	pub fn create_with_initial_flags(
-		directory: &'dir Directory,
-		name: &'dir EntryName,
-		extent: u64,
-		flags: InitialFlags,
-	) -> Result<Self, WriterError> {
-		if extent > MAX_FILE_EXTENT {
-			return Err(WriterError::InvalidRange);
-		}
-		without_materialization(LifecycleEffect::Created, || {
-			let parent = ObjectIdentity::held(directory)?;
-			let file = match fs::openat(
-				directory,
-				name.as_c_str(),
-				observation::PRIVATE_OPEN | OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
-				observation::PRIVATE_MODE,
-			) {
-				Ok(fd) => File::from(fd),
-				Err(rustix::io::Errno::EXIST) => return Err(WriterError::Occupied),
-				Err(error) => return Err(WriterError::CreateUncertain(error.into())),
-			};
-
-			let admit = || {
-				let location = Location::capture(directory, name, extent, parent, &file)?;
-				let observed = location.observe(&file, 0)?;
-				flags.check(observed.flags())?;
-				Ok(Self {
-					location,
-					file: Some(file),
-					position: 0,
-					observed,
-				})
-			};
-			admit().map_err(|error| WriterError::CreatedButUnverified(Box::new(error)))
-		})
-	}
-
 	/// Admitted identity of the newly created file.
 	pub fn identity(&self) -> &ObjectIdentity {
 		self.location.identity()
@@ -151,6 +100,13 @@ impl<'dir> PrivateWriter<'dir> {
 	pub fn with_metadata<T>(
 		&self,
 		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, WriterError> {
+		self.with_checked_metadata(|view| observe(view).map_err(WriterError::from))
+	}
+
+	fn with_checked_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, WriterError>,
 	) -> Result<T, WriterError> {
 		self.location.check_process()?;
 		let file = self.file.as_ref().ok_or(WriterError::Retired)?;
@@ -240,6 +196,11 @@ impl<'dir> ClosedFile<'dir> {
 	/// Admitted identity retained by the event-only anchor.
 	pub fn identity(&self) -> &ObjectIdentity {
 		self.location.identity()
+	}
+
+	/// Borrow the original event-only anchor for a caller-directed namespace transition.
+	pub const fn event_handle(&self) -> &EventHandle {
+		self.location.event_handle()
 	}
 
 	/// Declared logical length in bytes.

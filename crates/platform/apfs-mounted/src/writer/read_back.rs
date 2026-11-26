@@ -48,6 +48,13 @@ impl ReadBack<'_> {
 		&self,
 		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
 	) -> Result<T, WriterError> {
+		self.with_checked_metadata(|view| observe(view).map_err(WriterError::from))
+	}
+
+	pub(super) fn with_checked_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, WriterError>,
+	) -> Result<T, WriterError> {
 		self.stage.location.check_process()?;
 		without_materialization(LifecycleEffect::Observed, || {
 			self.stage

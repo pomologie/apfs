@@ -46,6 +46,10 @@ pub enum WriterError {
 	Read(ContentError),
 	UnexpectedEnd,
 	UnexpectedDataAfterEnd,
+	/// An independently read byte differed from the supplied contents.
+	ReadBackMismatch {
+		offset: u64,
+	},
 	Barrier(BarrierError),
 	Close(io::Error),
 	Times(ApplyError),
@@ -54,6 +58,8 @@ pub enum WriterError {
 	Metadata(ObservationError),
 	/// The caller rejected metadata or another policy prerequisite in a scoped check.
 	MetadataRefused(Box<dyn Error + Send + Sync>),
+	/// The caller denied exclusive creation before the native open.
+	CreationRefused(Box<dyn Error + Send + Sync>),
 	Io(io::Error),
 	Configure {
 		error: PolicyError,
@@ -114,6 +120,12 @@ impl fmt::Display for WriterError {
 			Self::UnexpectedDataAfterEnd => {
 				f.write_str("private read-back found data beyond the declared extent")
 			}
+			Self::ReadBackMismatch { offset } => {
+				write!(
+					f,
+					"private read-back found a differing byte at offset {offset}"
+				)
+			}
 			Self::Barrier(error) => fmt::Display::fmt(error, f),
 			Self::Close(error) => write!(f, "checked close failed ({error})"),
 			Self::Times(error) => write!(f, "timestamp application failed ({error})"),
@@ -122,6 +134,9 @@ impl fmt::Display for WriterError {
 			Self::Metadata(error) => fmt::Display::fmt(error, f),
 			Self::MetadataRefused(error) => {
 				write!(f, "the caller refused stage metadata ({error})")
+			}
+			Self::CreationRefused(error) => {
+				write!(f, "the caller refused private file creation ({error})")
 			}
 			Self::Io(error) => fmt::Display::fmt(error, f),
 			Self::Configure { error, restoration } => {
@@ -161,7 +176,7 @@ impl Error for WriterError {
 			Self::Times(error) => Some(error),
 			Self::Identity(error) => Some(error),
 			Self::Metadata(error) => Some(error),
-			Self::MetadataRefused(error) => Some(error.as_ref()),
+			Self::MetadataRefused(error) | Self::CreationRefused(error) => Some(error.as_ref()),
 			Self::Configure { error, .. } | Self::Restore { error, .. } => Some(error),
 			_ => None,
 		}

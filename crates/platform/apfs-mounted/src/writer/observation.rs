@@ -7,7 +7,7 @@ use crate::{
 	identity::ObjectIdentity,
 	metadata::{
 		AccessModificationTimes, MAX_EXTENDED_SECURITY_BYTES, MetadataView, ObjectFlags,
-		ObservationError, extended_security,
+		extended_security,
 	},
 	stored_name,
 };
@@ -129,12 +129,12 @@ impl<'dir> Location<'dir> {
 		&self,
 		file: &File,
 		expected: &Snapshot,
-		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, WriterError>,
 	) -> Result<T, WriterError> {
 		self.revalidate(file, expected)?;
 		let result = observe(MetadataView::new(file.as_fd()));
 		self.revalidate(file, expected)?;
-		Ok(result?)
+		result
 	}
 
 	pub(super) fn revalidate_anchor(&self, expected: &Snapshot) -> Result<Snapshot, WriterError> {
