@@ -13,7 +13,7 @@ from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checksum_differential, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
-    verify_tlc,
+    verify_native_windows, verify_tlc,
 )
 
 
@@ -145,6 +145,9 @@ def verify_method_policy(name, profile):
         if "span_cases" in profile:
             verify_span_policy(name, profile)
             return
+        if "window_cases" in profile:
+            verify_native_window_policy(name, profile)
+            return
         require(set(profile) == PROFILE_FIELDS | {"property_cases", "partial"} and profile["partial"] is True
                 and "rustc" in versions, f"invalid bootstrap property policy for {name}")
         cases = profile["property_cases"]
@@ -222,6 +225,16 @@ def verify_span_policy(name, profile):
             f"invalid geometry span bounds for {name}")
     require(profile["span_cases"] == {"native": [4096], "synthetic": [4096, 8192, 16384, 32768, 65536]},
             f"incomplete geometry span source profiles for {name}")
+
+
+def verify_native_window_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"window_cases", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid native window policy for {name}")
+    require(profile["bounds"] == {"object_bytes": 4096, "minimum_prefix_bytes": 32, "word_bytes": 4},
+            f"invalid native window bounds for {name}")
+    fixtures = profile["window_cases"]
+    require(text_mapping(fixtures) and fixtures and all(re.fullmatch(r"[0-9a-f]{16}", checksum)
+            for checksum in fixtures.values()), f"invalid native window checksums for {name}")
 
 
 def verify_checkpoint_model_policy(name, profile):
@@ -430,6 +443,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_locator_properties(transcript, profile["locator_cases"], profile["bounds"], profile["tool_versions"])
     elif "span_cases" in profile:
         verify_span_properties(transcript, profile["span_cases"], profile["bounds"], profile["tool_versions"])
+    elif "window_cases" in profile:
+        verify_native_windows(transcript, profile["window_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:
         verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
     elif "checkpoint_layouts" in profile:

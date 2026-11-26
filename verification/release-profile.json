@@ -99,6 +99,24 @@
       "bounds": {"seed": 7, "cases_per_shape": 64, "max_entries": 8, "boundary_ranges": 3, "scalar_bits": 64},
       "span_cases": {"native": [4096], "synthetic": [4096, 8192, 16384, 32768, 65536]}
     },
+    "native-checksum-window-properties": {
+      "obligation": "A-V01",
+      "method": "property",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-native-windows.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"object_bytes": 4096, "minimum_prefix_bytes": 32, "word_bytes": 4},
+      "window_cases": {
+        "native-block-0.bin": "46653a58ffa467b1",
+        "native-block-1.bin": "809e252d3f61b296",
+        "native-block-2.bin": "776e3d73f4ab9ec4",
+        "native-block-3.bin": "81393fa03ec66fe0",
+        "native-block-4.bin": "4665313affa470d2",
+        "sonoma-populated-omap-container.bin": "91e5a04e1e582875",
+        "sonoma-populated-omap-volume.bin": "1015733ba00855a0"
+      }
+    },
     "bootstrap-native": {
       "obligation": "A-V01",
       "method": "native",

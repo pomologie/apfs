@@ -12,6 +12,7 @@ from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, ar
 from apfs_evidence_transcript import (
     verify_checkpoint_layouts, verify_checkpoint_model, verify_locator_properties, verify_native_checkpoints,
     verify_native_geometry,
+    verify_native_windows,
     verify_span_properties,
 )
 
@@ -419,6 +420,23 @@ APFS span properties completed
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, expected):
                 verify_span_properties(transcript.replace(old, replacement), cases, bounds, versions)
+
+    def test_native_windows_require_the_complete_count_for_each_fixture(self):
+        row = "APFS native window native-block-0.bin 4096 1017 46653a58ffa467b1"
+        transcript = "\n".join(["rustc 1.99.1 (test)", row, "APFS native windows completed"])
+        fixtures = {"native-block-0.bin": "46653a58ffa467b1"}
+        bounds = {"object_bytes": 4096, "minimum_prefix_bytes": 32, "word_bytes": 4}
+        versions = {"rustc": "1.99.1"}
+        verify_native_windows(transcript, fixtures, bounds, versions)
+        for old, replacement, error in (
+            ("1017", "1016", "window scenarios"),
+            (row, row + "\n" + row, "window scenarios"),
+            ("native-block-0.bin", "native-block-1.bin", "window scenarios"),
+            ("46653a58ffa467b1", "0000000000000001", "window scenarios"),
+            ("windows completed", "windows interrupted", "did not complete"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):
+                verify_native_windows(transcript.replace(old, replacement), fixtures, bounds, versions)
 
     def test_checkpoint_model_transcript_requires_each_state_and_request_pair(self):
         cases = {"states": ["Complete", "TornDescriptor"], "requests": ["automatic", "1", "2"]}

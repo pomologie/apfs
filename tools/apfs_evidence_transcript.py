@@ -198,6 +198,20 @@ def verify_span_properties(transcript, cases, bounds, versions):
             "missing, duplicate, or unexpected span property scenarios")
 
 
+def verify_native_windows(transcript, fixtures, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native window transcript has the wrong Rust version")
+    completion = "APFS native windows completed"
+    require(lines[-1:] == [completion] and lines.count(completion) == 1, "native windows did not complete")
+    prefix = "APFS native window "
+    size = bounds["object_bytes"]
+    windows = (size - bounds["minimum_prefix_bytes"]) // bounds["word_bytes"] + 1
+    expected = Counter(f"{prefix}{name} {size} {windows} {checksum}" for name, checksum in fixtures.items())
+    require(Counter(line for line in lines if line.startswith(prefix)) == expected,
+            "missing, duplicate, or unexpected native window scenarios")
+
+
 def verify_checkpoint_model(transcript, cases, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,

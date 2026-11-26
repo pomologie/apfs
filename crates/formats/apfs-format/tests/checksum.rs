@@ -63,6 +63,41 @@ fn checks_retained_sonoma_objects_against_the_wire_checksum() {
 }
 
 #[test]
+fn checks_aligned_native_prefixes_against_wire_model() {
+	const OBJECT_ID_OFFSET: usize = 8;
+	const TRANSACTION_ID_OFFSET: usize = 16;
+	const TYPE_OFFSET: usize = 24;
+	const SUBTYPE_OFFSET: usize = 28;
+	const WIRE_HEADER_BYTES: usize = SUBTYPE_OFFSET + WORD_BYTES;
+
+	println!();
+	for (name, object) in SONOMA_OBJECTS {
+		let wide = |offset| u64::from_le_bytes(object[offset..][..CHECK_BYTES].try_into().unwrap());
+		let word = |offset| u32::from_le_bytes(object[offset..][..WORD_BYTES].try_into().unwrap());
+		let header = Header::decode(object).unwrap();
+		assert_eq!(header.checksum, wide(0));
+		assert_eq!(header.id.0, wide(OBJECT_ID_OFFSET));
+		assert_eq!(header.transaction.0, wide(TRANSACTION_ID_OFFSET));
+		assert_eq!(header.object_type, word(TYPE_OFFSET));
+		assert_eq!(header.subtype, word(SUBTYPE_OFFSET));
+
+		let mut checked = 0;
+		for length in (WIRE_HEADER_BYTES..=object.len()).step_by(WORD_BYTES) {
+			let prefix = &object[..length];
+			assert_eq!(Header::type_hint(prefix), Ok(word(TYPE_OFFSET)));
+			let computed = checksum(prefix).unwrap();
+			assert_fletcher_check_words(&prefix[CHECK_BYTES..], computed.to_le_bytes());
+			checked += 1;
+		}
+		println!(
+			"APFS native window {name} {} {checked} {:016x}",
+			object.len(),
+			header.checksum,
+		);
+	}
+}
+
+#[test]
 fn checks_fletcher_residues_at_each_admitted_block_size() {
 	const WORD_PATTERNS: [u32; 4] = [0, 1, u32::MAX - 1, u32::MAX];
 	const DISTINCT_WORD: u32 = 0x1234_5678;
