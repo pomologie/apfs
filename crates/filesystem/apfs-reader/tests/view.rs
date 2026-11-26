@@ -455,6 +455,8 @@ mod bootstrap;
 mod check;
 #[path = "view/hard_links.rs"]
 mod hard_links;
+#[path = "view/native_checkpoints.rs"]
+mod native_checkpoints;
 #[path = "view/native_names.rs"]
 mod native_names;
 #[path = "view/file_payloads.rs"]
