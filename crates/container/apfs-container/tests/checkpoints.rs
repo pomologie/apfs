@@ -1,14 +1,14 @@
-use std::collections::BTreeMap;
-
 use apfs_container::{Container, Corruption, Diagnostic, Error, Limit, OpenOptions, Unsupported};
-use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{
-	object::{Header, ObjectId, TransactionId, checksum},
+	object::{Header, ObjectId},
 	superblock::BlockAddress,
 };
+use fixture::*;
 
 #[path = "checkpoint_selection/exact.rs"]
 mod exact;
+#[path = "../verification/checkpoint_fixture.rs"]
+mod fixture;
 #[path = "checkpoint_selection/hosted_parity.rs"]
 mod hosted_parity;
 #[path = "../verification/checkpoint_selection.rs"]
@@ -21,173 +21,6 @@ mod object_map;
 mod volume_objects;
 #[path = "volumes/discovery.rs"]
 mod volumes;
-
-const BLOCK_BYTES: usize = 4096;
-const DEVICE_BYTES: u64 = 64 << 20;
-const BOOTSTRAP: u64 = 0;
-const EARLY_MAP: u64 = 1;
-const EARLY_NXSB: u64 = 2;
-const LATEST_MAP: u64 = 3;
-const LATEST_NXSB: u64 = 4;
-const LAST_DESCRIPTOR_BLOCK: u64 = 8;
-const WRAPPED_NXSB: u64 = EARLY_MAP;
-const MOVED_EARLY_MAP: u64 = EARLY_NXSB;
-const MOVED_EARLY_NXSB: u64 = LATEST_MAP;
-const MOVED_EARLY_DESCRIPTOR_INDEX: u32 = 1;
-const MOVED_EARLY_DESCRIPTOR_NEXT: u32 = 3;
-const WRAPPED_DESCRIPTOR_INDEX: u32 = 7;
-const WRAPPED_DESCRIPTOR_NEXT: u32 = 1;
-const DATA_RING_START: u64 = 9;
-const LATEST_FIRST_DATA: u64 = 11;
-const DATA_RING_BLOCKS: u64 = 160;
-const EARLY_OMAP: u64 = 191;
-const EARLY_OMAP_ROOT: u64 = 192;
-const VOLUME_OMAP: u64 = 193;
-const VOLUME_OMAP_ROOT: u64 = 194;
-const VOLUME_FSROOT: u64 = 197;
-const VOLUME_SUPERBLOCK: u64 = 198;
-const LATEST_OMAP: u64 = 199;
-const LATEST_OMAP_ROOT: u64 = 200;
-const CHECKSUM_BYTES: usize = 8;
-const OBJECT_ID_OFFSET: usize = 8;
-const XID_OFFSET: usize = 16;
-const INCOMPATIBLE_OFFSET: usize = 64;
-const DESCRIPTOR_NEXT_OFFSET: usize = 128;
-const DATA_NEXT_OFFSET: usize = 132;
-const DESCRIPTOR_INDEX_OFFSET: usize = 136;
-const DATA_INDEX_OFFSET: usize = 144;
-const MAP_FLAGS_OFFSET: usize = 32;
-const FIRST_MAPPING_OFFSET: usize = 40;
-const MAPPING_BYTES: usize = 40;
-const MAPPING_ID_OFFSET: usize = 24;
-const MAPPING_PHYSICAL_OFFSET: usize = 32;
-const LATEST_MAPPING_COUNT: usize = 4;
-const EARLY_XID: TransactionId = TransactionId(1);
-const LATEST_XID: TransactionId = TransactionId(2);
-
-macro_rules! native_block {
-	($address:literal) => {
-		*include_bytes!(concat!(
-			"fixtures/native-block-",
-			stringify!($address),
-			".bin"
-		))
-	};
-}
-
-#[derive(Debug)]
-struct Fixture(BTreeMap<u64, [u8; BLOCK_BYTES]>);
-
-impl Fixture {
-	fn native() -> Self {
-		Self(BTreeMap::from([
-			(BOOTSTRAP, native_block!(0)),
-			(EARLY_MAP, native_block!(1)),
-			(EARLY_NXSB, native_block!(2)),
-			(LATEST_MAP, native_block!(3)),
-			(LATEST_NXSB, native_block!(4)),
-			// The provenance ledger records these verified blank native slots.
-			(5, [0; BLOCK_BYTES]),
-			(6, [0; BLOCK_BYTES]),
-			(7, [0; BLOCK_BYTES]),
-			(LAST_DESCRIPTOR_BLOCK, [0; BLOCK_BYTES]),
-			(DATA_RING_START, native_block!(9)),
-			(10, native_block!(10)),
-			(LATEST_FIRST_DATA, native_block!(11)),
-			(12, native_block!(12)),
-			(13, native_block!(13)),
-			(14, native_block!(14)),
-			(EARLY_OMAP, native_block!(191)),
-			(EARLY_OMAP_ROOT, native_block!(192)),
-			(VOLUME_OMAP, native_block!(193)),
-			(VOLUME_OMAP_ROOT, native_block!(194)),
-			(VOLUME_FSROOT, native_block!(197)),
-			(VOLUME_SUPERBLOCK, native_block!(198)),
-			(LATEST_OMAP, native_block!(199)),
-			(LATEST_OMAP_ROOT, native_block!(200)),
-		]))
-	}
-
-	/// Keep the earlier native checkpoint complete while the newer descriptor
-	/// wraps to the first ring slot and refers to a map in the last slot.
-	fn wrapped_descriptors() -> Self {
-		let mut fixture = Self::native();
-		let latest_map = fixture.0[&LATEST_MAP];
-		fixture.0.insert(MOVED_EARLY_NXSB, fixture.0[&EARLY_NXSB]);
-		fixture.0.insert(MOVED_EARLY_MAP, fixture.0[&EARLY_MAP]);
-		fixture.0.insert(WRAPPED_NXSB, fixture.0[&LATEST_NXSB]);
-		fixture.0.insert(LAST_DESCRIPTOR_BLOCK, latest_map);
-		fixture.0.insert(LATEST_NXSB, [0; BLOCK_BYTES]);
-		fixture.set_u64(MOVED_EARLY_MAP, OBJECT_ID_OFFSET, MOVED_EARLY_MAP);
-		fixture.set_u32(
-			MOVED_EARLY_NXSB,
-			DESCRIPTOR_INDEX_OFFSET,
-			MOVED_EARLY_DESCRIPTOR_INDEX,
-		);
-		fixture.set_u32(
-			MOVED_EARLY_NXSB,
-			DESCRIPTOR_NEXT_OFFSET,
-			MOVED_EARLY_DESCRIPTOR_NEXT,
-		);
-		fixture.set_u64(
-			LAST_DESCRIPTOR_BLOCK,
-			OBJECT_ID_OFFSET,
-			LAST_DESCRIPTOR_BLOCK,
-		);
-		fixture.set_u32(
-			WRAPPED_NXSB,
-			DESCRIPTOR_INDEX_OFFSET,
-			WRAPPED_DESCRIPTOR_INDEX,
-		);
-		fixture.set_u32(
-			WRAPPED_NXSB,
-			DESCRIPTOR_NEXT_OFFSET,
-			WRAPPED_DESCRIPTOR_NEXT,
-		);
-		fixture
-	}
-
-	fn set_u32(&mut self, block: u64, offset: usize, value: u32) {
-		let bytes = self.0.get_mut(&block).unwrap();
-		bytes[offset..offset + size_of::<u32>()].copy_from_slice(&value.to_le_bytes());
-		update_checksum(bytes);
-	}
-
-	fn set_u64(&mut self, block: u64, offset: usize, value: u64) {
-		let bytes = self.0.get_mut(&block).unwrap();
-		bytes[offset..offset + size_of::<u64>()].copy_from_slice(&value.to_le_bytes());
-		update_checksum(bytes);
-	}
-}
-
-fn update_checksum(bytes: &mut [u8]) {
-	let sum = checksum(bytes).unwrap();
-	bytes[..CHECKSUM_BYTES].copy_from_slice(&sum.to_le_bytes());
-}
-
-impl ReadAt for Fixture {
-	type Error = u64;
-
-	fn len(&self) -> u64 {
-		DEVICE_BYTES
-	}
-
-	fn read_exact_at(&self, offset: ByteOffset, out: &mut [u8]) -> Result<(), Self::Error> {
-		let mut start = offset.0;
-		let mut destination = out;
-		while !destination.is_empty() {
-			let block = start / BLOCK_BYTES as u64;
-			let within = (start % BLOCK_BYTES as u64) as usize;
-			let bytes = self.0.get(&block).ok_or(block)?;
-			let take = destination.len().min(BLOCK_BYTES - within);
-			let (head, tail) = destination.split_at_mut(take);
-			head.copy_from_slice(&bytes[within..within + take]);
-			destination = tail;
-			start += take as u64;
-		}
-		Ok(())
-	}
-}
 
 #[test]
 fn selects_native_fsck_checkpoint_even_with_stale_bootstrap() {
