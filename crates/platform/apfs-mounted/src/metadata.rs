@@ -5,13 +5,17 @@ use std::{collections::TryReserveError, error::Error, fmt, io, os::fd::AsFd};
 use rustix::fs::{FileType, Mode, Stat, Timespec, Timestamps, fstat, futimens};
 
 mod attributes;
+mod flags;
 mod security;
+mod view;
 mod xattr;
 
+pub use flags::ObjectFlags;
 pub use security::{
 	ExtendedSecurity, MAX_EXTENDED_SECURITY_BYTES, SecurityGuids, SecurityPayload,
 	extended_security, security_guids, set_empty_acl_on_fresh_directory,
 };
+pub use view::MetadataView;
 pub use xattr::{
 	FINDER_INFO_BYTES, ResourceFork, XattrVisibility, finder_info, list_xattrs, read_resource_fork,
 	read_xattr, resource_fork,
@@ -95,6 +99,14 @@ pub struct Metadata {
 	pub times: AccessModificationTimes,
 	pub change: Timestamp,
 	pub birth: Timestamp,
+}
+
+impl Metadata {
+	/// BSD flags interpreted using Darwin's object flag definitions.
+	#[must_use]
+	pub const fn object_flags(self) -> ObjectFlags {
+		ObjectFlags::from_raw(self.bsd_flags)
+	}
 }
 
 /// Failure to obtain a bounded metadata observation.

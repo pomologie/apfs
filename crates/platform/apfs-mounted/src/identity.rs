@@ -109,6 +109,13 @@ impl ObjectIdentity {
 	/// Returns an error for unavailable evidence, a change during the lookup
 	/// or a failed native metadata query.
 	pub fn named(parent: &Directory, name: &EntryName) -> Result<Option<Self>, IdentityError> {
+		Self::named_with_stat(parent, name).map(|entry| entry.map(|(identity, _)| identity))
+	}
+
+	pub(crate) fn named_with_stat(
+		parent: &Directory,
+		name: &EntryName,
+	) -> Result<Option<(Self, Stat)>, IdentityError> {
 		let parent = parent.as_fd();
 		let name = name.as_c_str();
 		let before = match fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW) {
@@ -127,7 +134,7 @@ impl ObjectIdentity {
 			Err(Errno::NOENT) => return Err(IdentityError::Changed),
 			Err(error) => return Err(error.into()),
 		};
-		Self::checked(&before, real, &after).map(Some)
+		Self::checked(&before, real, &after).map(|identity| Some((identity, after)))
 	}
 
 	/// Compares a fresh held-object observation to this identity.

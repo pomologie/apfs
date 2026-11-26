@@ -1,9 +1,14 @@
 //! Exact positioned reads from a selected live file under a held directory.
 
-use std::{error, fmt, fs::File, io, os::unix::fs::FileExt as _};
+use std::{
+	error, fmt,
+	fs::File,
+	io,
+	os::{fd::AsFd as _, unix::fs::FileExt as _},
+};
 
 use rustix::{
-	fs::{self, AtFlags, FileType, Mode, OFlags, Stat},
+	fs::{self, AtFlags, Mode, Stat},
 	io::Errno,
 };
 
@@ -11,7 +16,11 @@ use crate::{
 	Directory, EntryName,
 	dataless::{ContentError, PolicyError, ScopeError, with_materialization_disabled},
 	identity::{IdentityError, ObjectIdentity},
+	lease::{Lease, LeaseError},
+	metadata::{MetadataView, ObjectFlags, ObservationError},
 };
+
+mod admission;
 
 #[cfg(test)]
 mod tests;
@@ -19,10 +28,6 @@ mod tests;
 /// Upper byte count of one exact positioned read request.
 pub const MAX_READ_BYTES: usize = 1 << 20;
 const MAX_INTERRUPTED_RETRIES: usize = 16;
-const READ_FLAGS: OFlags = OFlags::RDONLY
-	.union(OFlags::NOFOLLOW)
-	.union(OFlags::NONBLOCK)
-	.union(OFlags::CLOEXEC);
 
 /// A normalized timestamp observed during source admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,7 +50,7 @@ impl SourceTimestamp {
 	}
 }
 
-/// Basic metadata observed on the source descriptor at admission.
+/// Basic metadata observed when selecting a source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceMetadata {
 	pub length: u64,
@@ -55,13 +60,19 @@ pub struct SourceMetadata {
 	pub group: u32,
 	pub link_count: u64,
 	pub flags: u32,
-	/// Access time at admission. Ordinary reads may change it.
+	/// Access time before opening the file for data. Ordinary reads may change it.
 	pub accessed: SourceTimestamp,
 	pub modified: SourceTimestamp,
 	pub changed: SourceTimestamp,
 }
 
 impl SourceMetadata {
+	/// Native flags with typed Darwin queries for known bits.
+	#[must_use]
+	pub const fn object_flags(self) -> ObjectFlags {
+		ObjectFlags::from_raw(self.flags)
+	}
+
 	fn from_stat(stat: &Stat) -> Result<Self, SourceError> {
 		Ok(Self {
 			length: u64::try_from(stat.st_size).map_err(|_| SourceError::Unsupported)?,
@@ -83,6 +94,10 @@ impl SourceMetadata {
 pub enum SourceError {
 	Missing,
 	Unsupported,
+	/// The caller's admission rule rejected the named source before data open.
+	AdmissionRefused,
+	/// The supplied lease covers another directory.
+	LeaseMismatch,
 	Changed,
 	Range {
 		offset: u64,
@@ -95,6 +110,8 @@ pub enum SourceError {
 	UnexpectedEof,
 	ContentUnavailable(io::Error),
 	Identity(IdentityError),
+	Lease(LeaseError),
+	Metadata(ObservationError),
 	Io(io::Error),
 	PolicyConfigure {
 		error: PolicyError,
@@ -113,6 +130,8 @@ impl fmt::Display for SourceError {
 		match self {
 			Self::Missing => formatter.write_str("source name is absent"),
 			Self::Unsupported => formatter.write_str("unsupported source file or mount"),
+			Self::AdmissionRefused => formatter.write_str("source admission was refused"),
+			Self::LeaseMismatch => formatter.write_str("the lease covers another directory"),
 			Self::Changed => formatter.write_str("source identity or metadata changed"),
 			Self::Range {
 				offset,
@@ -131,6 +150,8 @@ impl fmt::Display for SourceError {
 				formatter.write_str("source content unavailable with materialization disabled")
 			}
 			Self::Identity(_) => formatter.write_str("source identity observation failed"),
+			Self::Lease(_) => formatter.write_str("source lease observation failed"),
+			Self::Metadata(_) => formatter.write_str("source metadata observation failed"),
 			Self::Io(_) => formatter.write_str("source I/O failed"),
 			Self::PolicyConfigure { .. } => {
 				formatter.write_str("could not establish the source materialization policy")
@@ -146,6 +167,8 @@ impl error::Error for SourceError {
 	fn source(&self) -> Option<&(dyn error::Error + 'static)> {
 		match self {
 			Self::Identity(error) => Some(error),
+			Self::Lease(error) => Some(error),
+			Self::Metadata(error) => Some(error),
 			Self::Io(error) | Self::ContentUnavailable(error) => Some(error),
 			Self::PolicyConfigure { error, .. } | Self::PolicyRestore { error, .. } => Some(error),
 			_ => None,
@@ -181,53 +204,10 @@ pub struct PinnedSource<'root> {
 	identity: ObjectIdentity,
 	initial: Stat,
 	metadata: SourceMetadata,
+	lease: Option<&'root Lease>,
 }
 
-impl<'root> PinnedSource<'root> {
-	/// Open a selected regular file read-only with materialization disabled.
-	///
-	/// # Errors
-	/// Returns an error for an absent, unsupported, rebound, or inaccessible
-	/// file, or if the thread's materialization policy cannot be established
-	/// or restored.
-	pub fn open(root: &'root Directory, name: &'root EntryName) -> Result<Self, SourceError> {
-		under_policy(|| {
-			let root_identity = ObjectIdentity::held(root)?;
-			let named = stat_name(root, name)?.ok_or(SourceError::Missing)?;
-			if FileType::from_raw_mode(named.st_mode) != FileType::RegularFile {
-				return Err(SourceError::Unsupported);
-			}
-			let identity = ObjectIdentity::named(root, name)?.ok_or(SourceError::Changed)?;
-			if root_identity.mount() != identity.mount() {
-				return Err(SourceError::Unsupported);
-			}
-			let fd =
-				fs::openat(root, name.as_c_str(), READ_FLAGS, Mode::empty()).map_err(|error| {
-					match error {
-						Errno::NOENT | Errno::LOOP => SourceError::Changed,
-						error => content_error(error.into()),
-					}
-				})?;
-			let file = File::from(fd);
-			let initial = fs::fstat(&file)?;
-			if !same_stamp(&initial, &named) {
-				return Err(SourceError::Changed);
-			}
-			let metadata = SourceMetadata::from_stat(&initial)?;
-			let source = Self {
-				root,
-				name,
-				file,
-				root_identity,
-				identity,
-				initial,
-				metadata,
-			};
-			source.validate_state()?;
-			Ok(source)
-		})
-	}
-
+impl PinnedSource<'_> {
 	/// Identity of the held file and the original selected name at admission.
 	#[must_use]
 	pub const fn identity(&self) -> &ObjectIdentity {
@@ -240,7 +220,8 @@ impl<'root> PinnedSource<'root> {
 		&self.root_identity
 	}
 
-	/// Basic metadata from the held file at admission.
+	/// Admission metadata revalidated against the held file, with the access
+	/// time observed before opening it for data.
 	#[must_use]
 	pub const fn metadata(&self) -> SourceMetadata {
 		self.metadata
@@ -262,6 +243,26 @@ impl<'root> PinnedSource<'root> {
 	/// Returns an error for changed evidence, I/O, or a thread policy failure.
 	pub fn validate(&self) -> Result<(), SourceError> {
 		under_policy(|| self.validate_state())
+	}
+
+	/// Run bounded metadata queries against this pinned descriptor.
+	///
+	/// The read-only view is confined to the callback. The descriptor, name
+	/// and any supplied lease are checked before and after the observation
+	/// with materialization disabled. Access time in the view is live.
+	/// # Errors
+	/// Returns an error for changed evidence, a failed metadata query, or a
+	/// thread policy failure.
+	pub fn with_metadata<T>(
+		&self,
+		observe: impl FnOnce(MetadataView<'_>) -> Result<T, ObservationError>,
+	) -> Result<T, SourceError> {
+		under_policy(|| {
+			self.validate_state()?;
+			let outcome = observe(MetadataView::new(self.file.as_fd()));
+			self.validate_state()?;
+			outcome.map_err(SourceError::Metadata)
+		})
 	}
 
 	/// Read exactly the requested bytes from the captured extent.
@@ -312,6 +313,7 @@ impl<'root> PinnedSource<'root> {
 	}
 
 	fn validate_state(&self) -> Result<(), SourceError> {
+		admission::validate_lease(self.lease, self.root_identity)?;
 		self.root_identity.revalidate_held(self.root)?;
 		self.identity.revalidate_held(&self.file)?;
 		self.identity.revalidate_named(self.root, self.name)?;
