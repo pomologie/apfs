@@ -340,7 +340,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_locator_transcripts_require_seed_tool_and_each_case(self):
         transcript = """rustc 1.99.1 (58cf8f9c3 2026-10-13)
-└── proptest v1.12.0
+proptest v1.12.0
+   Compiling proptest v1.12.0
 APFS locator seed 7
 APFS locator property descriptor 4096 fragment-locator 64
 APFS locator properties completed

@@ -7,7 +7,7 @@ toolchain=1.99.1
 toolchain_bin=$(dirname -- "$(rustup which --toolchain "$toolchain" rustc)")
 export PATH="$toolchain_bin:$PATH"
 rustc --version
-cargo tree --locked --manifest-path "$manifest" --no-default-features --edges dev --depth 1
+cargo tree --locked --manifest-path "$manifest" --no-default-features --edges dev --depth 1 --prefix none
 cargo test --locked --manifest-path "$manifest" --no-default-features \
 	--test locator_properties -- --nocapture --test-threads=1
 printf 'APFS locator properties completed\n'

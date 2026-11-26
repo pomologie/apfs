@@ -137,7 +137,7 @@ def verify_bootstrap_properties(transcript, cases, versions):
 def verify_locator_properties(transcript, cases, bounds, versions):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
-            and sum(line.endswith(f"proptest v{versions['proptest']}") for line in lines) == 1,
+            and lines.count(f"proptest v{versions['proptest']}") == 1,
             "locator transcript has the wrong tool versions")
     require(lines.count(f"APFS locator seed {bounds['seed']}") == 1, "wrong locator property seed")
     require(lines[-1:] == [LOCATOR_PROPERTY_SUCCESS] and lines.count(LOCATOR_PROPERTY_SUCCESS) == 1,
