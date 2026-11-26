@@ -31,7 +31,7 @@ Read the shared ecosystem verification standard EVS-1 (`docs/architecture/ECOSYS
 **Requirement links:** A-CONT-01.\
 **Evidence:** kani, property, fuzz, differential, native; status planned.
 
-The NXSB geometry subset and native-derived bootstrap rejection tests passed for A-CONT-01-T02. Kani covers full-width geometry arithmetic, standard object-header field decoding through 32 bytes and the checksum input window through 40 bytes. A separate weighted-sum oracle checks production Fletcher-64 arithmetic on seven native 4 KiB objects and synthetic buffers from 4 KiB to 64 KiB. The full obligation remains open. [Format and bootstrap evidence](../../crates/formats/apfs-format/verification/README.md)
+The acceptance catalog records three passing scenarios for A-CONT-01. A-V01 is a separate mandatory gate for the same v0.1.0 profile. Kani covers full-width geometry and both checkpoint-area wire layouts, standard object-header field decoding through 32 bytes, and the checksum input window through 40 bytes. A weighted-sum oracle checks production Fletcher-64 arithmetic on seven native 4 KiB objects and synthetic buffers from 4 KiB to 64 KiB. A-CONT-01 release qualification remains open pending the complete, revision-bound A-V01 evidence for all five methods. [Acceptance catalog](../reference/test-catalog.json) · [Format and bootstrap evidence](../../crates/formats/apfs-format/verification/README.md) · [Obligation index](../../verification/obligations.json)
 
 ### A-V02 — checkpoint discovery
 **Target:** apfs-container / candidate selection.\
