@@ -14,6 +14,8 @@ use crate::{
 	probe::{BLOCK_ZERO, DEFAULT_MAX_OBJECT_BYTES, DEFAULT_MAX_READ_BYTES, Probe},
 };
 
+#[cfg(test)]
+mod tests;
 mod validate;
 
 const VERSION_TWO: u64 = 1 << 1;

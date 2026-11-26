@@ -8,4 +8,7 @@ export PATH="$toolchain_bin:$PATH"
 rustc --version
 cargo test --locked --manifest-path "$verification_dir/../Cargo.toml" \
 	--no-default-features --test bootstrap_properties -- --nocapture --test-threads=1
+cargo test --locked --manifest-path "$verification_dir/../Cargo.toml" \
+	--no-default-features --lib checkpoint::tests::required_feature_sets_match_typed_admission \
+	-- --exact --nocapture --test-threads=1
 printf 'APFS bootstrap properties completed\n'

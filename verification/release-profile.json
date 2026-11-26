@@ -72,7 +72,8 @@
         "size-prefix": [[5, 7]],
         "geometry": [[4096, 7, 3, 24], [8192, 7, 3, 24], [16384, 7, 3, 24], [32768, 7, 3, 24], [65536, 7, 3, 24]],
         "checksum-window": [[65, 9]],
-        "required-feature": [[63]]
+        "required-feature": [[63]],
+        "typed-required-feature": [[4034, 16136]]
       }
     },
     "locator-properties": {
