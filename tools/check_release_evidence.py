@@ -245,10 +245,11 @@ def verify_complete_object_policy(name, profile):
             and {"rustc", "proptest"} <= profile["tool_versions"].keys(), f"invalid complete object policy for {name}")
     bounds = profile["bounds"]
     require(set(bounds) == {"seed", "cases_per_block_size", "checksum_windows_per_object", "byte_ranges_per_object",
-                            "scalar_bits"}
+                            "compatible_profiles_per_object", "scalar_bits"}
             and all(positive_integer(value) for value in bounds.values())
-            and (bounds["checksum_windows_per_object"], bounds["byte_ranges_per_object"], bounds["scalar_bits"])
-            == (5, 3, 64), f"invalid complete object bounds for {name}")
+            and (bounds["checksum_windows_per_object"], bounds["byte_ranges_per_object"],
+                 bounds["compatible_profiles_per_object"], bounds["scalar_bits"])
+            == (5, 3, 8, 64), f"invalid complete object bounds for {name}")
     require(profile["complete_object_cases"] == [4096, 8192, 16384, 32768, 65536],
             f"incomplete supported block sizes for {name}")
 

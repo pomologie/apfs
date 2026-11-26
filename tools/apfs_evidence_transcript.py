@@ -224,7 +224,8 @@ def verify_complete_objects(transcript, sizes, bounds, versions):
     count = bounds["cases_per_block_size"]
     windows = count * bounds["checksum_windows_per_object"]
     ranges = count * bounds["byte_ranges_per_object"]
-    expected = Counter(f"{prefix}{size} {count} {windows} {ranges}" for size in sizes)
+    profiles = count * bounds["compatible_profiles_per_object"]
+    expected = Counter(f"{prefix}{size} {count} {windows} {ranges} {profiles}" for size in sizes)
     require(Counter(line for line in lines if line.startswith(prefix)) == expected,
             "missing, duplicate, or unexpected complete object property scenarios")
 

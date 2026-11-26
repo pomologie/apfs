@@ -126,7 +126,7 @@
       "tool_versions": {"rustc": "1.99.1", "proptest": "1.12.0"},
       "bounds": {
         "seed": 7, "cases_per_block_size": 64, "checksum_windows_per_object": 5,
-        "byte_ranges_per_object": 3, "scalar_bits": 64
+        "byte_ranges_per_object": 3, "compatible_profiles_per_object": 8, "scalar_bits": 64
       },
       "complete_object_cases": [4096, 8192, 16384, 32768, 65536]
     },

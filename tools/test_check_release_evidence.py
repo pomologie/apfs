@@ -438,16 +438,16 @@ APFS span properties completed
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):
                 verify_native_windows(transcript.replace(old, replacement), fixtures, bounds, versions)
 
-    def test_complete_objects_require_each_size_and_its_compared_windows_and_ranges(self):
+    def test_complete_objects_require_each_size_and_its_compared_windows_ranges_and_profiles(self):
         transcript = "\n".join([
             "rustc 1.99.1 (test)", "proptest v1.12.0", "APFS complete object seed 7",
-            "APFS complete object property 4096 64 320 192",
-            "APFS complete object property 65536 64 320 192",
+            "APFS complete object property 4096 64 320 192 512",
+            "APFS complete object property 65536 64 320 192 512",
             "APFS complete object properties completed",
         ])
         sizes = [4096, 65536]
         bounds = {"seed": 7, "cases_per_block_size": 64, "checksum_windows_per_object": 5,
-                  "byte_ranges_per_object": 3}
+                  "byte_ranges_per_object": 3, "compatible_profiles_per_object": 8}
         versions = {"rustc": "1.99.1", "proptest": "1.12.0"}
         verify_complete_objects(transcript, sizes, bounds, versions)
         for old, replacement, error in (
@@ -455,6 +455,7 @@ APFS span properties completed
             ("65536 64", "4096 64", "property scenarios"),
             ("320 192", "319 192", "property scenarios"),
             ("320 192", "320 191", "property scenarios"),
+            ("192 512", "192 511", "property scenarios"),
             ("properties completed", "properties interrupted", "did not complete"),
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):

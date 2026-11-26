@@ -18,6 +18,11 @@ const MIN_CONTAINER_BYTES: u64 = 1 << 20;
 const TREE_FLAG: u32 = 1 << 31;
 const BLOCK_SIZE_OFFSET: usize = 36;
 const BLOCK_COUNT_OFFSET: usize = 40;
+const OPTIONAL_FEATURES_OFFSET: usize = 48;
+const READ_ONLY_FEATURES_OFFSET: usize = 56;
+const OPTIONAL_DEFRAG: u64 = 1;
+const FIRST_UNDEFINED_OPTIONAL_BIT: u32 = 2;
+const INCOMPATIBLE_VERSION_TWO: u64 = 1 << 1;
 const OBJECT_MAP_OFFSET: usize = 160;
 const CHECKSUM_BYTES: usize = size_of::<u64>();
 const MAX_SPAN_ENTRIES: usize = 8;
@@ -173,6 +178,7 @@ fn generated_complete_nxsb_objects_match_widened_checksums_and_ranges() {
 		let completed = Cell::new(0);
 		let windows = Cell::new(0);
 		let ranges = Cell::new(0);
+		let profiles = Cell::new(0);
 		runner()
 			.run(&any::<(u64, u64, u64)>(), |(size, transaction, address)| {
 				let blocks = generated_block_count(block_bytes, size);
@@ -226,18 +232,70 @@ fn generated_complete_nxsb_objects_match_widened_checksums_and_ranges() {
 					);
 					ranges.set(ranges.get() + 1);
 				}
+				profiles.set(
+					profiles.get()
+						+ check_compatible_profiles(
+							&mut object,
+							device_bytes,
+							&accepted,
+							(address >> u32::BITS) as u32,
+						),
+				);
 				completed.set(completed.get() + 1);
 				Ok(())
 			})
 			.unwrap();
 		assert_eq!(completed.get(), CASES);
 		println!(
-			"APFS complete object property {block_bytes} {} {} {}",
+			"APFS complete object property {block_bytes} {} {} {} {}",
 			completed.get(),
 			windows.get(),
 			ranges.get(),
+			profiles.get(),
 		);
 	}
+}
+
+fn check_compatible_profiles(
+	object: &mut [u8],
+	device_bytes: u64,
+	baseline: &Superblock,
+	flags: u32,
+) -> u32 {
+	// Apple defines bits 0 and 1 as defragmentation and low-capacity Fusion.
+	// Keep single-store objects and vary only defragmentation and ignorable bits.
+	let optional_bit =
+		FIRST_UNDEFINED_OPTIONAL_BIT + flags % (u64::BITS - FIRST_UNDEFINED_OPTIONAL_BIT);
+	let optional_extension = 1_u64 << optional_bit;
+	let read_only_bit = flags.rotate_right(u16::BITS) % u64::BITS;
+	let mut checked = 0;
+	for optional in [
+		0,
+		OPTIONAL_DEFRAG,
+		optional_extension,
+		OPTIONAL_DEFRAG | optional_extension,
+	] {
+		for read_only in [0, 1_u64 << read_only_bit] {
+			put(object, OPTIONAL_FEATURES_OFFSET, optional.to_le_bytes());
+			put(object, READ_ONLY_FEATURES_OFFSET, read_only.to_le_bytes());
+			let expected_checksum = reference_checksum(object);
+			put(object, 0, expected_checksum.to_le_bytes());
+			let (header, profile) = Superblock::verified_profile(object).unwrap();
+			let decoded = Superblock::decode(object, device_bytes).unwrap();
+			let mut expected = baseline.clone();
+			expected.object.checksum = expected_checksum;
+			expected.features = optional;
+			expected.read_only_compatible = read_only;
+			expected.incompatible = INCOMPATIBLE_VERSION_TWO;
+			assert_eq!(header, expected.object);
+			assert_eq!(decoded, expected);
+			assert_eq!(profile.incompatible, INCOMPATIBLE_VERSION_TWO);
+			assert!(!profile.has_keylocker);
+			assert!(!profile.fragmented_checkpoint_area);
+			checked += 1;
+		}
+	}
+	checked
 }
 
 fn generated_block_count(block_bytes: u32, sample: u64) -> u64 {
