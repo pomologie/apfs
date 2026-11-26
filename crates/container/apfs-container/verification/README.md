@@ -1,5 +1,17 @@
 # APFS container verification
 
+## A-V02 checkpoint selection
+
+The [checkpoint selection model](checkpoint_selection.rs) compares the production container API with a reference policy for two transactions in a wrapped descriptor ring. It exercises 147 cases by crossing seven evidence states per transaction with automatic selection and exact requests for the earlier and latest XIDs. The model predicts the selected descriptor and XID, typed refusals, and ordered diagnostics from the injected evidence without parsing APFS bytes.
+
+The test starts from [retained native fixture blocks](../tests/fixtures/native-apfs.json). It synthesizes the ring wrap and varies complete evidence, an absent or torn descriptor, a blank map, a map with the other XID, unsupported map flags, and an unavailable payload. This supplies synthetic evidence for A-CONT-02-T01, a bounded reference model for T02, and directed regression coverage for T03. The TLC model, fuzzing, and native differential fixtures for damaged and wrapped rings remain open.
+
+Run `cargo test --locked -p apfs-container --no-default-features --test checkpoints model::wrapped_selection_matches_reference_model` from the repository root.
+
+In a disposable checkout, removing the transaction comparison from `read_maps` while retaining the map OID check made the test fail. The altered selector admitted the later descriptor with the earlier map XID. The model expected the earlier checkpoint, a rejection tied to the later descriptor, and a diagnostic for the newer bootstrap XID.
+
+## A-V03 object-map lookup
+
 The [object-map harness](kani/object_map.rs) covers the leaf selection portion of A-V03. It calls the production inclusive predecessor search and leaf visibility filter. The input is a prefix of at most eight strictly ordered unique keys. OIDs and transaction IDs use the full unsigned 64-bit range, and each leaf value can be live or deleted. An independent linear model filters by OID and requested XID, chooses the greatest eligible XID, and applies its tombstone.
 
 The harness checks an empty leaf, a full eight-key leaf with future mappings, a query with only future versions, a tombstone over an older live version, and equality at the maximum XID. Sorting and uniqueness are prior format admission checks. Tree routing, physical address admission, object namespace validation, and consistency of a historical checkpoint or snapshot remain separate obligations. See the [repository obligation registry](../../../../verification/obligations.json).

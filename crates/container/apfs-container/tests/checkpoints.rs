@@ -11,6 +11,8 @@ use apfs_format::{
 mod exact;
 #[path = "checkpoint_selection/hosted_parity.rs"]
 mod hosted_parity;
+#[path = "../verification/checkpoint_selection.rs"]
+mod model;
 #[path = "object_map/lookup.rs"]
 mod object_map;
 #[path = "volume_objects/resolution.rs"]
