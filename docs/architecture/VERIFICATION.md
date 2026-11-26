@@ -145,3 +145,5 @@ Read the shared ecosystem verification standard EVS-1 (`docs/architecture/ECOSYS
 
 ## Kernel portability release evidence
 A-PORT-01 is an additional mandatory acceptance gate for every active kernel-facing crate, not a new claim of formal proof. Retain existing proof obligations. See TESTING.md and EES-1 §3a for exact profile compilation, feature graph, parity and negative leakage checks; actual kernel qualification remains separate.
+
+`A-PORT-01-T01` passed for `apfs-core`, `apfs-format`, `apfs-container` and `apfs-reader` at `a494df4`. The pinned Rust 1.99.1 CI matrix ran `cargo check --locked -p PACKAGE --no-default-features --target TARGET` and the corresponding `cargo build` for `aarch64-unknown-none` and `x86_64-unknown-none`. A local Rust 1.99.1 replay passed `cargo build --locked --offline --release -p PACKAGE --no-default-features --target TARGET` for all eight pairs. The feature-boundary and semantic-parity cases retain their own acceptance records. [CI evidence](https://github.com/pomologie/apfs/actions/runs/45812476886)
