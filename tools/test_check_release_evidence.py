@@ -579,23 +579,27 @@ class NativeGeometryTranscriptTests(unittest.TestCase):
             "APFS native geometry area 0 data 9 160 2 4 6 36864 692224",
             "APFS native geometry map 3 2 1 1",
             "APFS native geometry mapping 3 0 2147483653 0 4096 0 1024 11 45056 49152",
+            "APFS native geometry header 0 46653a58ffa467b1 1 2 2147483649 0",
+            "APFS native geometry profile 0 0 0 2 0 0",
         ]
         digest = hashlib.sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest()
         ledger = "a" * 64
         transcript = "\n".join([
             "rustc 1.99.1 (test)", *rows,
             f"APFS native geometry ledger {ledger}",
-            f"APFS native geometry comparison 1 1 1 1 {digest}",
+            f"APFS native geometry comparison 1 1 1 1 1 1 {digest}",
             "APFS native geometry differential completed",
         ])
         cases = {"ledger_sha256": ledger, "rows_sha256": digest,
-                 "rows": {"nxsb": 1, "area": 1, "map": 1, "mapping": 1}}
+                 "rows": {"nxsb": 1, "area": 1, "map": 1, "mapping": 1, "header": 1, "profile": 1}}
         versions = {"rustc": "1.99.1"}
         verify_native_geometry(transcript, cases, versions)
         for old, replacement, message in [
             (rows[0], "", "row counts"),
             (rows[1], rows[1] + "\n" + rows[1], "row counts"),
             ("45056 49152", "45056 49151", "independent comparison"),
+            (rows[4], rows[4].replace("2147483649", "2147483650"), "independent comparison"),
+            (rows[5], rows[5].replace("0 2 0 0", "0 2 1 0"), "independent comparison"),
             (ledger, "b" * 64, "ledger or comparison"),
             ("differential completed", "differential interrupted", "did not complete"),
         ]:

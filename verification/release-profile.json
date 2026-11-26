@@ -56,8 +56,8 @@
       "bounds": {"block_bytes": 4096, "source_bytes": 67108864},
       "geometry_cases": {
         "ledger_sha256": "e198963bf2332557c703fb73c2b8ec0976fff3e9d20e24f96cacf86442f55845",
-        "rows_sha256": "2c2e81408a6a65e92d9d66d248d70f93f0379752046e7bff32102c6c4bcefe7b",
-        "rows": {"nxsb": 3, "area": 6, "map": 2, "mapping": 6}
+        "rows_sha256": "e3c9d1c58848893a065f952e2bb5f520574898b5a41c6f0044e59689a7c9a705",
+        "rows": {"nxsb": 3, "area": 6, "map": 2, "mapping": 6, "header": 5, "profile": 3}
       }
     },
     "bootstrap-properties": {

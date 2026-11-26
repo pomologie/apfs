@@ -1,5 +1,6 @@
 use apfs_format::{
 	checkpoint::Map,
+	object::Header,
 	superblock::{AreaLocation, BlockAddress, Superblock},
 };
 
@@ -16,6 +17,18 @@ fn report_retained_native_geometry_and_mapping_extents() {
 	println!();
 	for (address, bytes) in checkpoints {
 		let superblock = Superblock::decode(bytes, DEVICE_BYTES).unwrap();
+		let (header, profile) = Superblock::verified_profile(bytes).unwrap();
+		assert_eq!(header, superblock.object);
+		assert_eq!(profile.incompatible, superblock.incompatible);
+		report_header(address, header);
+		println!(
+			"{PREFIX} profile {address} {} {} {} {} {}",
+			superblock.features,
+			superblock.read_only_compatible,
+			profile.incompatible,
+			u8::from(profile.has_keylocker),
+			u8::from(profile.fragmented_checkpoint_area),
+		);
 		let geometry = superblock.geometry;
 		let blocks = geometry.block_count();
 		let extent = geometry.byte_range(BlockAddress(0), blocks).unwrap();
@@ -59,6 +72,7 @@ fn report_retained_native_geometry_and_mapping_extents() {
 			.unwrap()
 			.geometry;
 		let map = Map::decode(bytes, geometry).unwrap();
+		report_header(address, map.header());
 		println!(
 			"{PREFIX} map {address} {} {} {}",
 			map.header().transaction.0,
@@ -83,4 +97,11 @@ fn report_retained_native_geometry_and_mapping_extents() {
 			);
 		}
 	}
+}
+
+fn report_header(address: u64, header: Header) {
+	println!(
+		"{PREFIX} header {address} {:016x} {} {} {} {}",
+		header.checksum, header.id.0, header.transaction.0, header.object_type, header.subtype,
+	);
 }
