@@ -1,9 +1,20 @@
-use apfs_format::object::{Header, checksum};
+use std::{env, fs, path::PathBuf};
+
+use apfs_format::{
+	Error,
+	object::{Header, checksum},
+};
 
 const CHECK_BYTES: usize = 8;
 const WORD_BYTES: usize = 4;
 const MODULUS: u128 = u32::MAX as u128;
 const BLOCK_SIZES: [usize; 5] = [4096, 8192, 16_384, 32_768, 65_536];
+const OBJECT_ID_OFFSET: usize = 8;
+const TRANSACTION_ID_OFFSET: usize = 16;
+const TYPE_OFFSET: usize = 24;
+const SUBTYPE_OFFSET: usize = 28;
+const WIRE_HEADER_BYTES: usize = SUBTYPE_OFFSET + WORD_BYTES;
+const TYPE_END: usize = TYPE_OFFSET + WORD_BYTES;
 
 macro_rules! fixture {
 	($name:literal) => {
@@ -62,29 +73,27 @@ fn checks_retained_sonoma_objects_against_the_wire_checksum() {
 	}
 }
 
+fn check_native_header(object: &[u8]) -> Header {
+	let wide = |offset| u64::from_le_bytes(object[offset..][..CHECK_BYTES].try_into().unwrap());
+	let word = |offset| u32::from_le_bytes(object[offset..][..WORD_BYTES].try_into().unwrap());
+	let header = Header::decode(object).unwrap();
+	assert_eq!(header.checksum, wide(0));
+	assert_eq!(header.id.0, wide(OBJECT_ID_OFFSET));
+	assert_eq!(header.transaction.0, wide(TRANSACTION_ID_OFFSET));
+	assert_eq!(header.object_type, word(TYPE_OFFSET));
+	assert_eq!(header.subtype, word(SUBTYPE_OFFSET));
+	header
+}
+
 #[test]
 fn checks_aligned_native_prefixes_against_wire_model() {
-	const OBJECT_ID_OFFSET: usize = 8;
-	const TRANSACTION_ID_OFFSET: usize = 16;
-	const TYPE_OFFSET: usize = 24;
-	const SUBTYPE_OFFSET: usize = 28;
-	const WIRE_HEADER_BYTES: usize = SUBTYPE_OFFSET + WORD_BYTES;
-
 	println!();
 	for (name, object) in SONOMA_OBJECTS {
-		let wide = |offset| u64::from_le_bytes(object[offset..][..CHECK_BYTES].try_into().unwrap());
-		let word = |offset| u32::from_le_bytes(object[offset..][..WORD_BYTES].try_into().unwrap());
-		let header = Header::decode(object).unwrap();
-		assert_eq!(header.checksum, wide(0));
-		assert_eq!(header.id.0, wide(OBJECT_ID_OFFSET));
-		assert_eq!(header.transaction.0, wide(TRANSACTION_ID_OFFSET));
-		assert_eq!(header.object_type, word(TYPE_OFFSET));
-		assert_eq!(header.subtype, word(SUBTYPE_OFFSET));
-
+		let header = check_native_header(object);
 		let mut checked = 0;
 		for length in (WIRE_HEADER_BYTES..=object.len()).step_by(WORD_BYTES) {
 			let prefix = &object[..length];
-			assert_eq!(Header::type_hint(prefix), Ok(word(TYPE_OFFSET)));
+			assert_eq!(Header::type_hint(prefix), Ok(header.object_type));
 			let computed = checksum(prefix).unwrap();
 			assert_fletcher_check_words(&prefix[CHECK_BYTES..], computed.to_le_bytes());
 			checked += 1;
@@ -95,6 +104,89 @@ fn checks_aligned_native_prefixes_against_wire_model() {
 			header.checksum,
 		);
 	}
+}
+
+// The verification runner supplies the container crate's retained fixture path.
+#[test]
+#[ignore = "run with check-native-windows.sh --size-matrix"]
+fn checks_every_prefix_of_retained_native_block_sizes() {
+	let fixtures = PathBuf::from(env::var_os("APFS_NATIVE_WINDOW_FIXTURES").unwrap());
+	println!();
+	for size in BLOCK_SIZES {
+		let object = fs::read(fixtures.join(format!("native-block-zero-{size}.bin"))).unwrap();
+		assert_eq!(object.len(), size);
+		let header = check_native_header(&object);
+		let (mut admitted, mut refused) = (0, 0);
+		let (mut sum, mut moment) = (0, 0);
+		for length in 0..=size {
+			let prefix = &object[..length];
+			let hint = if length >= TYPE_END {
+				Ok(header.object_type)
+			} else {
+				Err(Error::Truncated)
+			};
+			assert_eq!(
+				Header::type_hint(prefix),
+				hint,
+				"size {size}, prefix {length}"
+			);
+
+			let aligned = length.is_multiple_of(WORD_BYTES);
+			if aligned && length > CHECK_BYTES {
+				let word = u32::from_le_bytes(prefix[length - WORD_BYTES..].try_into().unwrap());
+				let index = (length - CHECK_BYTES) / WORD_BYTES;
+				sum += u128::from(word);
+				moment += index as u128 * u128::from(word);
+			}
+			if length < WIRE_HEADER_BYTES || !aligned {
+				assert_eq!(
+					checksum(prefix),
+					Err(Error::Truncated),
+					"size {size}, prefix {length}"
+				);
+				assert_eq!(
+					Header::decode(prefix),
+					Err(Error::Truncated),
+					"size {size}, prefix {length}"
+				);
+				refused += 1;
+				continue;
+			}
+
+			let words = (length - CHECK_BYTES) / WORD_BYTES;
+			let expected = checksum_from_moment(words, sum, moment);
+			assert_eq!(
+				checksum(prefix),
+				Ok(expected),
+				"size {size}, prefix {length}"
+			);
+			let expected_header = if expected == header.checksum {
+				Ok(header)
+			} else {
+				Err(Error::InvalidChecksum)
+			};
+			assert_eq!(
+				Header::decode(prefix),
+				expected_header,
+				"size {size}, prefix {length}"
+			);
+			admitted += 1;
+		}
+		println!(
+			"APFS native window matrix {size} {admitted} {refused} {:016x}",
+			header.checksum
+		);
+	}
+}
+
+fn checksum_from_moment(words: usize, sum: u128, moment: u128) -> u64 {
+	// Appending two check words changes payload word i's weight to n + 3 - i.
+	// Both the plain sum and the weighted sum must be zero modulo MODULUS.
+	// Subtract their equations to solve for the low word, then solve for the high word.
+	let weighted = (words as u128 + 3) * sum - moment;
+	let low = MODULUS - (weighted - sum) % MODULUS;
+	let high = MODULUS - (sum + low) % MODULUS;
+	u64::try_from(low | (high << u32::BITS)).unwrap()
 }
 
 #[test]

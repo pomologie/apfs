@@ -234,10 +234,18 @@ def verify_native_windows(transcript, fixtures, bounds, versions):
     completion = "APFS native windows completed"
     require(lines[-1:] == [completion] and lines.count(completion) == 1, "native windows did not complete")
     prefix = "APFS native window "
-    size = bounds["object_bytes"]
-    windows = (size - bounds["minimum_prefix_bytes"]) // bounds["word_bytes"] + 1
-    expected = Counter(f"{prefix}{name} {size} {windows} {checksum}" for name, checksum in fixtures.items())
-    require(Counter(line for line in lines if line.startswith(prefix)) == expected,
+    if "block_sizes" in bounds:
+        prefix += "matrix "
+        expected = [f"{prefix}ledger {fixtures['ledger_sha256']}"]
+        for size in bounds["block_sizes"]:
+            windows = (size - bounds["minimum_prefix_bytes"]) // bounds["word_bytes"] + 1
+            refused = size + 1 - windows
+            expected.append(f"{prefix}{size} {windows} {refused} {fixtures['checksums'][str(size)]}")
+    else:
+        size = bounds["object_bytes"]
+        windows = (size - bounds["minimum_prefix_bytes"]) // bounds["word_bytes"] + 1
+        expected = [f"{prefix}{name} {size} {windows} {checksum}" for name, checksum in fixtures.items()]
+    require(Counter(line for line in lines if line.startswith(prefix)) == Counter(expected),
             "missing, duplicate, or unexpected native window scenarios")
 
 

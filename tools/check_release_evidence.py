@@ -35,7 +35,7 @@ TLC_BOUND_FIELDS = {"candidate_xids", "ring_slots", "workers", "seed", "fingerpr
 CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
-NATIVE_GEOMETRY_MATRIX_SIZES = [4096, 8192, 16384, 32768, 65536]
+NATIVE_BLOCK_SIZES = [4096, 8192, 16384, 32768, 65536]
 BOOTSTRAP_PROPERTY_COLUMNS = {
     "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1,
     "typed-required-feature": 2, "mixed-feature-cutoff": 2,
@@ -206,7 +206,7 @@ def verify_native_geometry_policy(name, profile):
     bounds = profile["bounds"]
     matrix = "block_sizes" in bounds
     if matrix:
-        require(bounds == {"block_sizes": NATIVE_GEOMETRY_MATRIX_SIZES, "source_bytes": 128 << 20},
+        require(bounds == {"block_sizes": NATIVE_BLOCK_SIZES, "source_bytes": 128 << 20},
                 f"invalid native geometry matrix bounds for {name}")
     else:
         require(set(bounds) == {"block_bytes", "source_bytes"}
@@ -221,7 +221,7 @@ def verify_native_geometry_policy(name, profile):
     require(isinstance(rows, dict) and set(rows) == set(NATIVE_GEOMETRY_GROUPS)
             and all(type(count) is int for count in rows.values()), f"invalid native geometry rows for {name}")
     if matrix:
-        size_count = len(NATIVE_GEOMETRY_MATRIX_SIZES)
+        size_count = len(NATIVE_BLOCK_SIZES)
         require(rows == {"nxsb": size_count, "area": 2 * size_count, "map": 0, "mapping": 0,
                          "header": size_count, "profile": size_count},
                 f"incomplete native geometry matrix rows for {name}")
@@ -276,9 +276,19 @@ def verify_span_policy(name, profile):
 def verify_native_window_policy(name, profile):
     require(set(profile) == PROFILE_FIELDS | {"window_cases", "partial"} and profile["partial"] is True
             and "rustc" in profile["tool_versions"], f"invalid native window policy for {name}")
-    require(profile["bounds"] == {"object_bytes": 4096, "minimum_prefix_bytes": 32, "word_bytes": 4},
-            f"invalid native window bounds for {name}")
+    bounds = profile["bounds"]
+    wire = {"minimum_prefix_bytes": 32, "word_bytes": 4}
     fixtures = profile["window_cases"]
+    if "block_sizes" in bounds:
+        require(bounds == wire | {"block_sizes": NATIVE_BLOCK_SIZES}, f"invalid native window matrix bounds for {name}")
+        require(isinstance(fixtures, dict) and set(fixtures) == {"ledger_sha256", "checksums"}
+                and text(fixtures["ledger_sha256"]) and SHA256.fullmatch(fixtures["ledger_sha256"]),
+                f"invalid native window matrix ledger for {name}")
+        fixtures = fixtures["checksums"]
+        require(isinstance(fixtures, dict) and set(fixtures) == {str(size) for size in NATIVE_BLOCK_SIZES},
+                f"incomplete native window matrix sizes for {name}")
+    else:
+        require(bounds == wire | {"object_bytes": 4096}, f"invalid native window bounds for {name}")
     require(text_mapping(fixtures) and fixtures and all(re.fullmatch(r"[0-9a-f]{16}", checksum)
             for checksum in fixtures.values()), f"invalid native window checksums for {name}")
 
@@ -584,7 +594,11 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif "span_cases" in profile:
         verify_span_properties(transcript, profile["span_cases"], profile["bounds"], profile["tool_versions"])
     elif "window_cases" in profile:
-        verify_native_windows(transcript, profile["window_cases"], profile["bounds"], profile["tool_versions"])
+        cases = profile["window_cases"]
+        if "block_sizes" in profile["bounds"]:
+            require(record.get("fixture_hash") == cases["ledger_sha256"],
+                    "native window matrix fixture hash does not match its acquisition ledger")
+        verify_native_windows(transcript, cases, profile["bounds"], profile["tool_versions"])
     elif "complete_object_cases" in profile:
         verify_complete_objects(transcript, profile["complete_object_cases"], profile["bounds"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:

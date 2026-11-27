@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from uuid import UUID
 
-from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate, verify_native_geometry_policy
+from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate, verify_native_geometry_policy, verify_native_window_policy
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
     verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_full_open,
@@ -528,6 +528,41 @@ APFS span properties completed
             ("windows completed", "windows interrupted", "did not complete"),
         ):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, error):
+                verify_native_windows(transcript.replace(old, replacement), fixtures, bounds, versions)
+
+    def test_native_window_matrix_requires_the_ledger_and_all_per_size_counts(self):
+        name = "native-size-matrix-window-properties"
+        root = Path(__file__).resolve().parents[1]
+        profile = json.loads((root / POLICY_PATH).read_text(encoding="utf-8"))["profiles"][name]
+        fixtures = profile["window_cases"]
+        bounds = profile["bounds"]
+        verify_native_window_policy(name, profile)
+        with self.assertRaisesRegex(EvidenceError, "matrix bounds"):
+            verify_native_window_policy(name, profile | {"bounds": bounds | {"block_sizes": [4096]}})
+        with self.assertRaisesRegex(EvidenceError, "matrix sizes"):
+            cases = fixtures | {"checksums": {"4096": fixtures["checksums"]["4096"]}}
+            verify_native_window_policy(name, profile | {"window_cases": cases})
+
+        row = "APFS native window matrix 65536 16377 49160 4bcc7609f30e3ca2"
+        transcript = "\n".join([
+            "rustc 1.99.1 (test)",
+            f"APFS native window matrix ledger {fixtures['ledger_sha256']}",
+            "APFS native window matrix 4096 1017 3080 ff6b7d4b7fef6594",
+            "APFS native window matrix 8192 2041 6152 93dfe781b706a414",
+            "APFS native window matrix 16384 4089 12296 5f28f8fa40ab799f",
+            "APFS native window matrix 32768 8185 24584 0f77b0d4dc4116d7",
+            row,
+            "APFS native windows completed",
+        ])
+        versions = profile["tool_versions"]
+        verify_native_windows(transcript, fixtures, bounds, versions)
+        for old, replacement in (
+            (row, ""),
+            (row, row + "\n" + row),
+            ("16377 49160", "16376 49161"),
+            (fixtures["ledger_sha256"], "a" * 64),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, "window scenarios"):
                 verify_native_windows(transcript.replace(old, replacement), fixtures, bounds, versions)
 
     def test_complete_objects_require_each_size_and_its_compared_windows_ranges_and_profiles(self):
