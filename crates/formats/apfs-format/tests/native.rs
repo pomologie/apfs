@@ -97,6 +97,8 @@ fn typed_ring_ordinals_match_modular_distance_at_full_width() {
 						area.index = index;
 						area.next = next;
 						area.length = length;
+						let indices_fit = index < blocks && next < blocks;
+						let length_fits = length <= blocks;
 						let distance = blocks - index;
 						for ordinal in [
 							0,
@@ -107,11 +109,7 @@ fn typed_ring_ordinals_match_modular_distance_at_full_width() {
 							distance,
 							distance.saturating_add(1),
 						] {
-							let expected = if index >= blocks
-								|| next >= blocks
-								|| length > blocks
-								|| ordinal >= length
-							{
+							let expected = if !indices_fit || !length_fits || ordinal >= length {
 								Err(Error::InvalidCheckpoint)
 							} else if ordinal < distance {
 								Ok(index + ordinal)
