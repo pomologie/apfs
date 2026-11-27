@@ -3,6 +3,7 @@
 import re
 from collections import Counter
 from hashlib import sha256
+from itertools import product
 from uuid import UUID
 
 
@@ -190,6 +191,19 @@ def verify_bootstrap_differential(transcript, cases, versions):
             "bootstrap differential observation counts do not match policy")
     require(sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest() == cases["rows_sha256"],
             "bootstrap observations do not match the independent comparison")
+
+
+def verify_checkpoint_decisions(transcript, cases, versions):
+    lines = transcript.splitlines()
+    prefix = "APFS checkpoint decision "
+    end = "APFS checkpoint decisions completed"
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "checkpoint decision transcript has the wrong Rust version")
+    require(lines[-1:] == [end] and lines.count(end) == 1, "checkpoint decision run did not complete")
+    xids, states, requests = (cases[key] for key in ("xids", "states", "requests"))
+    expected = Counter(prefix + " ".join(map(str, row)) for row in product(xids, states, xids, states, requests))
+    observed = Counter(line for line in lines if line.startswith(prefix))
+    require(observed == expected, "missing, duplicate, or unexpected checkpoint decisions")
 
 
 def verify_format_fuzz(transcript, bounds, versions):

@@ -10,7 +10,8 @@ import subprocess
 import sys
 
 from apfs_evidence_transcript import (
-    EvidenceError, require, verify_bootstrap_differential, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
+    EvidenceError, require, verify_bootstrap_differential, verify_bootstrap_properties,
+    verify_checkpoint_decisions, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     FULL_OPEN_HOST_FIELDS, FULL_OPEN_SOURCE_DIGESTS, verify_format_fuzz, verify_native_extent,
@@ -53,6 +54,10 @@ CONTAINER_PROPERTY = ("A-V01", "property")
 CONTAINER_PROPERTY_METHOD = "/".join(CONTAINER_PROPERTY)
 CONTAINER_DIFFERENTIAL = ("A-V01", "differential")
 CONTAINER_DIFFERENTIAL_METHOD = "/".join(CONTAINER_DIFFERENTIAL)
+CHECKPOINT_PROPERTY = ("A-V02", "property")
+CHECKPOINT_PROPERTY_METHOD = "/".join(CHECKPOINT_PROPERTY)
+CHECKPOINT_STATES = ["Complete", "AbsentDescriptor", "TornDescriptor", "BlankMap", "MismatchedMap",
+                     "UnsupportedMap", "UnreadablePayload"]
 BOOTSTRAP_DIFFERENTIAL_ROWS = {"size": 12, "geometry": 35, "span": 120, "header": 65, "feature-bit": 63, "feature-open": 160}
 CONTAINER_PROPERTY_INVOCATIONS = {
     "bootstrap-properties": ("property_cases", "container/apfs-container", "check-bootstrap-properties.sh"),
@@ -69,6 +74,11 @@ CONTAINER_DIFFERENTIAL_INVOCATIONS = {
     "format-checksum-differential": ("checksum_cases", "formats/apfs-format", "check-checksum.sh"),
     "format-native-geometry-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh"),
     "format-native-size-matrix-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh", "--size-matrix"),
+}
+CHECKPOINT_PROPERTY_INVOCATIONS = {
+    "checkpoint-model-properties": ("checkpoint_cases", "container/apfs-container", "check-checkpoint-model.sh"),
+    "checkpoint-layout-properties": ("checkpoint_layouts", "container/apfs-container", "check-checkpoint-layouts.sh"),
+    "checkpoint-decision-properties": ("checkpoint_decisions", "container/apfs-container", "check-checkpoint-decisions.sh"),
 }
 
 
@@ -183,6 +193,14 @@ def verify_method_policy(name, profile):
                 and "rustc" in versions, f"invalid checksum differential policy for {name}")
         verify_checksum_policy(name, profile["checksum_cases"], bounds)
     elif method == "property":
+        if "checkpoint_decisions" in profile:
+            xids = [1, 2, 3]
+            require(set(profile) == PROFILE_FIELDS | {"checkpoint_decisions", "partial"} and profile["partial"] is True
+                    and "rustc" in versions and bounds == {"descriptor_positions": 2, "cases": 1764}
+                    and profile["checkpoint_decisions"] == {
+                        "xids": xids, "states": CHECKPOINT_STATES, "requests": ["automatic", "1", "2", "3"],
+                    }, f"invalid checkpoint decision matrix for {name}")
+            return
         if "checkpoint_layouts" in profile:
             verify_checkpoint_layout_policy(name, profile)
             return
@@ -531,6 +549,22 @@ def container_differential_group(profiles):
     return group
 
 
+def checkpoint_property_group(profiles):
+    group = named_partial_group(profiles, CHECKPOINT_PROPERTY, CHECKPOINT_PROPERTY_INVOCATIONS)
+    if not group:
+        return {}
+    model = group["checkpoint-model-properties"]
+    layout = group["checkpoint-layout-properties"]
+    if (model["bounds"] != {"candidate_xids": 2, "descriptor_ring_slots": 8, "cases": 147}
+            or model["checkpoint_cases"] != {"states": CHECKPOINT_STATES, "requests": ["automatic", "1", "2"]}
+            or layout["bounds"] != {"first_xid": 16, "cases": 180}
+            or layout["checkpoint_layouts"] != {"ring_slots": [8, 16, 32], "candidate_counts": [1, 3, 4],
+                                               "placements": ["Start", "Middle", "Wrap"],
+                                               "orders": ["Ascending", "Descending"]}):
+        return {}
+    return group
+
+
 def required_matrix(policy, registry, requested_profile, requested_method=None):
     require(isinstance(policy, dict) and set(policy) == {"schema_version", "milestone", "profiles"}
             and type(policy["schema_version"]) is int and policy["schema_version"] == SCHEMA_VERSION,
@@ -579,6 +613,7 @@ def required_matrix(policy, registry, requested_profile, requested_method=None):
     groups = {
         CONTAINER_PROPERTY: container_property_group(profiles),
         CONTAINER_DIFFERENTIAL: container_differential_group(profiles),
+        CHECKPOINT_PROPERTY: checkpoint_property_group(profiles),
     }
     if requested_method is not None:
         group = groups.get(tuple(requested_method.split("/")))
@@ -702,6 +737,8 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_native_windows(transcript, cases, profile["bounds"], profile["tool_versions"])
     elif "complete_object_cases" in profile:
         verify_complete_objects(transcript, profile["complete_object_cases"], profile["bounds"], profile["tool_versions"])
+    elif "checkpoint_decisions" in profile:
+        verify_checkpoint_decisions(transcript, profile["checkpoint_decisions"], profile["tool_versions"])
     elif "checkpoint_cases" in profile:
         verify_checkpoint_model(transcript, profile["checkpoint_cases"], profile["tool_versions"])
     elif "checkpoint_layouts" in profile:
@@ -777,7 +814,7 @@ def main():
     parser.add_argument("--bundle", type=Path, required=True, help="schema v1 JSON array")
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--profile", help="check one invocation instead of all release evidence")
-    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD, CONTAINER_DIFFERENTIAL_METHOD],
+    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD, CONTAINER_DIFFERENTIAL_METHOD, CHECKPOINT_PROPERTY_METHOD],
                        help="check a complete bounded method group")
     arguments = parser.parse_args()
     try:

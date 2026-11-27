@@ -475,7 +475,7 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
         with self.assertRaises(EvidenceError) as full_release:
             required_matrix(policy, registry, None)
         self.assertNotIn(method, str(full_release.exception))
-        self.assertIn("A-V02/property", str(full_release.exception))
+        self.assertIn("A-V02/native", str(full_release.exception))
 
         omitted = deepcopy(policy)
         del omitted["profiles"]["geometry-span-properties"]
@@ -511,6 +511,22 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
         for incomplete in (omitted, reduced):
             with self.subTest(incomplete=incomplete), self.assertRaisesRegex(EvidenceError, "no complete configured"):
                 required_matrix(incomplete, registry, None, method)
+
+    def test_checkpoint_property_method_requires_the_typed_matrix_and_layouts(self):
+        repository = Path(__file__).resolve().parents[1]
+        policy = json.loads((repository / POLICY_PATH).read_text())
+        registry = json.loads((repository / REGISTRY_PATH).read_text())
+        method = "A-V02/property"
+        self.assertEqual(set(required_matrix(policy, registry, None, method)), {
+            "checkpoint-model-properties", "checkpoint-layout-properties", "checkpoint-decision-properties",
+        })
+        with self.assertRaises(EvidenceError) as full_release:
+            required_matrix(policy, registry, None)
+        self.assertNotIn(method, str(full_release.exception))
+        self.assertIn("A-V02/native", str(full_release.exception))
+        del policy["profiles"]["checkpoint-decision-properties"]
+        with self.assertRaisesRegex(EvidenceError, "no complete configured"):
+            required_matrix(policy, registry, None, method)
 
     def test_bootstrap_properties_require_the_boundary_matrix(self):
         self.set_bootstrap_profile()
