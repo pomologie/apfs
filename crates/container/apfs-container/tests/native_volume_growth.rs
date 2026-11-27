@@ -29,6 +29,7 @@ const SECONDARY: (ObjectId, &str, u128) = (
 );
 
 struct ObservedStage {
+	name: &'static str,
 	pack: &'static [u8],
 	xid: u64,
 	descriptor: u64,
@@ -40,6 +41,7 @@ struct ObservedStage {
 
 const STAGES: [ObservedStage; 2] = [
 	ObservedStage {
+		name: "baseline",
 		pack: include_bytes!("fixtures/native-volume-growth/sonoma-1g-baseline-blocks.bin"),
 		xid: 2,
 		descriptor: 4,
@@ -49,6 +51,7 @@ const STAGES: [ObservedStage; 2] = [
 		volumes: &[PRIMARY],
 	},
 	ObservedStage {
+		name: "two-volume",
 		pack: include_bytes!("fixtures/native-volume-growth/sonoma-1g-two-volume-blocks.bin"),
 		xid: 3,
 		descriptor: 6,
@@ -167,6 +170,47 @@ fn native_checkpoint_and_volume_selection_agree_with_apple_after_volume_growth()
 			})
 			.collect();
 		assert_eq!(observed, stage.volumes);
+
+		println!(
+			"APFS native volume growth {} checkpoint {} {} {:016x} {} {} {}",
+			stage.name,
+			selected.object.transaction.0,
+			latest.descriptor().0,
+			selected.object.checksum,
+			selected.geometry.block_bytes(),
+			selected.geometry.block_count(),
+			selected.object_map.0,
+		);
+		for (kind, ring) in [
+			("descriptors", selected.descriptors),
+			("data", selected.data),
+		] {
+			let AreaLocation::Contiguous(base) = ring.location else {
+				unreachable!("the observed ring is contiguous");
+			};
+			println!(
+				"APFS native volume growth {} {kind} {} {} {} {} {}",
+				stage.name, base.0, ring.blocks, ring.index, ring.length, ring.next,
+			);
+		}
+		for mapping in latest.mappings() {
+			println!(
+				"APFS native volume growth {} mapping {} {} {} {} {} {}",
+				stage.name,
+				mapping.id.0,
+				mapping.physical.0,
+				mapping.size_bytes,
+				mapping.object_type,
+				mapping.subtype,
+				mapping.volume.map_or(0, |volume| volume.0),
+			);
+		}
+		for (id, label, uuid) in observed {
+			println!(
+				"APFS native volume growth {} volume {} {uuid:032x} {label}",
+				stage.name, id.0,
+			);
+		}
 	}
 }
 
