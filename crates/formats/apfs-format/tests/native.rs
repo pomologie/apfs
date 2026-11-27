@@ -75,6 +75,68 @@ fn native_live_rings_stop_at_the_verified_span() {
 }
 
 #[test]
+fn typed_ring_ordinals_match_modular_distance_at_full_width() {
+	let checkpoint = Superblock::decode(SECOND_CHECKPOINT, DEVICE_SIZE).unwrap();
+	// Keep the decoded native layouts and vary only the typed cursor inputs.
+	let areas = [checkpoint.descriptors, checkpoint.data];
+	for native in areas {
+		let mut saw_wide_wrap = false;
+		for blocks in [1, native.blocks, i32::MAX as u32, u32::MAX] {
+			for index in [0, blocks / 2, blocks - 1, blocks] {
+				for next in [0, blocks - 1, blocks] {
+					for length in [
+						0,
+						1,
+						blocks / 2,
+						blocks.saturating_sub(1),
+						blocks,
+						blocks.saturating_add(1),
+					] {
+						let mut area = native;
+						area.blocks = blocks;
+						area.index = index;
+						area.next = next;
+						area.length = length;
+						let distance = blocks - index;
+						for ordinal in [
+							0,
+							length.saturating_sub(1),
+							length,
+							u32::MAX,
+							distance.saturating_sub(1),
+							distance,
+							distance.saturating_add(1),
+						] {
+							let expected = if index >= blocks
+								|| next >= blocks || length > blocks
+								|| ordinal >= length
+							{
+								Err(Error::InvalidCheckpoint)
+							} else if ordinal < distance {
+								Ok(index + ordinal)
+							} else {
+								Ok(ordinal - distance)
+							};
+							assert_eq!(
+								area.ring_index(ordinal),
+								expected,
+								"{area:?}, ordinal={ordinal}"
+							);
+							saw_wide_wrap |= expected.is_ok()
+								&& u64::from(index) + u64::from(ordinal) > u64::from(u32::MAX);
+						}
+					}
+				}
+			}
+		}
+		assert!(
+			saw_wide_wrap,
+			"the typed matrix must exercise wrapping above u32::MAX"
+		);
+	}
+}
+
+#[test]
 fn native_objects_require_complete_buffers_and_their_own_decoder() {
 	let prefix = &BOOTSTRAP[..BLOCK_SIZE_PREFIX_BYTES];
 	assert_eq!(Superblock::block_size_hint(prefix), Ok(4096));
