@@ -489,6 +489,29 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
             with self.subTest(incomplete=incomplete), self.assertRaisesRegex(EvidenceError, "no complete configured"):
                 required_matrix(incomplete, registry, None, method)
 
+    def test_container_differential_method_requires_all_scoped_profiles(self):
+        repository = Path(__file__).resolve().parents[1]
+        policy = json.loads((repository / POLICY_PATH).read_text())
+        registry = json.loads((repository / REGISTRY_PATH).read_text())
+        method = "A-V01/differential"
+        profiles = required_matrix(policy, registry, None, method)
+        self.assertEqual(set(profiles), {
+            "bootstrap-admission-differential", "format-checksum-differential",
+            "format-native-geometry-differential", "format-native-size-matrix-differential",
+        })
+        with self.assertRaises(EvidenceError) as full_release:
+            required_matrix(policy, registry, None)
+        self.assertNotIn(method, str(full_release.exception))
+        self.assertIn("A-V02/differential", str(full_release.exception))
+
+        omitted = deepcopy(policy)
+        del omitted["profiles"]["bootstrap-admission-differential"]
+        reduced = deepcopy(policy)
+        reduced["profiles"]["format-checksum-differential"]["checksum_cases"]["fixtures"].popitem()
+        for incomplete in (omitted, reduced):
+            with self.subTest(incomplete=incomplete), self.assertRaisesRegex(EvidenceError, "no complete configured"):
+                required_matrix(incomplete, registry, None, method)
+
     def test_bootstrap_properties_require_the_boundary_matrix(self):
         self.set_bootstrap_profile()
         line = "APFS bootstrap property required-feature 63"

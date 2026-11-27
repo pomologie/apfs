@@ -33,6 +33,7 @@ const REQUIRED_EXTENSION_A: u64 = 1 << 62;
 const REQUIRED_EXTENSION_B: u64 = 1 << 63;
 const HEADER_BYTES: usize = 32;
 const WORD_BYTES: usize = 4;
+const OBSERVATION: &str = "APFS bootstrap observation";
 const HEADER_SAMPLE_BYTES: usize = 64;
 const SAMPLE_OBJECT_ID: ObjectId = ObjectId(0x0f0e_0d0c_0b0a_0908);
 const SAMPLE_TRANSACTION: TransactionId = TransactionId(0x1716_1514_1312_1110);
@@ -41,18 +42,21 @@ const SAMPLE_SUBTYPE: u32 = 0x1f1e_1d1c;
 
 #[test]
 fn nxsb_size_prefix_matches_supported_block_dimensions() {
+	println!();
 	let mut prefix: [u8; BLOCK_SIZE_PREFIX_BYTES] =
 		NATIVE[..BLOCK_SIZE_PREFIX_BYTES].try_into().unwrap();
-	for size in BLOCK_SIZES {
+	for size in BLOCK_SIZES.into_iter().chain(INVALID_SIZES) {
 		prefix[BLOCK_SIZE..].copy_from_slice(&size.to_le_bytes());
-		assert_eq!(Superblock::block_size_hint(&prefix), Ok(size));
-	}
-	for size in INVALID_SIZES {
-		prefix[BLOCK_SIZE..].copy_from_slice(&size.to_le_bytes());
+		let observed = Superblock::block_size_hint(&prefix);
 		assert_eq!(
-			Superblock::block_size_hint(&prefix),
-			Err(FormatError::InvalidGeometry)
+			observed,
+			if BLOCK_SIZES.contains(&size) {
+				Ok(size)
+			} else {
+				Err(FormatError::InvalidGeometry)
+			}
 		);
+		println!("{OBSERVATION} size {size} {}", u8::from(observed.is_ok()));
 	}
 	println!(
 		"\nAPFS bootstrap property size-prefix {} {}",
@@ -86,7 +90,9 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 			let extent = u128::from(count) * u128::from(size);
 			if !(u128::from(MIN_CONTAINER_BYTES)..=u128::from(device_bytes)).contains(&extent) {
 				assert_eq!(result, Err(FormatError::InvalidGeometry));
-				refused_invocations += check_geometry_cutoff(&block, device_bytes);
+				let refused = check_geometry_cutoff(&block, device_bytes);
+				println!("{OBSERVATION} geometry {size} {count} {device_bytes} refused {refused}");
+				refused_invocations += refused;
 				rejected += 1;
 				continue;
 			}
@@ -100,11 +106,12 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 				device_bytes,
 				reads: Cell::new(0),
 			};
-			assert_eq!(
-				probe_extent(&source).unwrap().unwrap().get(),
-				u64::try_from(extent).unwrap()
-			);
+			let actual_extent = probe_extent(&source).unwrap().unwrap().get();
+			assert_eq!(actual_extent, u64::try_from(extent).unwrap());
 			assert_eq!(source.reads.get(), 2);
+			println!(
+				"{OBSERVATION} geometry {size} {count} {device_bytes} admitted {actual_extent}"
+			);
 			admitted += 1;
 			for (base, blocks) in [
 				(0, 0),
@@ -124,7 +131,17 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 				} else {
 					Err(FormatError::InvalidGeometry)
 				};
-				assert_eq!(geometry.byte_range(BlockAddress(base), blocks), expected);
+				let observed = geometry.byte_range(BlockAddress(base), blocks);
+				assert_eq!(observed, expected);
+				match observed {
+					Ok(range) => println!(
+						"{OBSERVATION} span {size} {count} {device_bytes} {base} {blocks} {} {}",
+						range.start, range.end
+					),
+					Err(_) => println!(
+						"{OBSERVATION} span {size} {count} {device_bytes} {base} {blocks} refused"
+					),
+				}
 				ranges += 1;
 			}
 		}
@@ -171,6 +188,7 @@ fn check_geometry_cutoff(block: &[u8], device_bytes: u64) -> usize {
 
 #[test]
 fn header_and_checksum_window_match_the_wire_alignment() {
+	println!();
 	let mut sample: [u8; HEADER_SAMPLE_BYTES] =
 		std::array::from_fn(|index| u8::try_from(index).unwrap());
 	let mut complete = 0;
@@ -179,6 +197,7 @@ fn header_and_checksum_window_match_the_wire_alignment() {
 		if len < HEADER_BYTES || !len.is_multiple_of(WORD_BYTES) {
 			assert_eq!(checksum(object), Err(FormatError::Truncated));
 			assert_eq!(Header::decode(object), Err(FormatError::Truncated));
+			println!("{OBSERVATION} header {len} truncated");
 			continue;
 		}
 		seal(object);
@@ -190,6 +209,10 @@ fn header_and_checksum_window_match_the_wire_alignment() {
 		object[0] ^= 1;
 		assert_eq!(checksum(object), Ok(header.checksum));
 		assert_eq!(Header::decode(object), Err(FormatError::InvalidChecksum));
+		println!(
+			"{OBSERVATION} header {len} {} {} {} {} {:016x} invalid-checksum",
+			header.id.0, header.transaction.0, header.object_type, header.subtype, header.checksum
+		);
 		complete += 1;
 	}
 	println!(
@@ -200,6 +223,7 @@ fn header_and_checksum_window_match_the_wire_alignment() {
 
 #[test]
 fn each_additional_required_feature_bit_stops_before_traversal() {
+	println!();
 	let mut feature_bits = 0;
 	for bit in (0..u64::BITS).filter(|&bit| bit != KNOWN_FEATURE_BIT) {
 		let flag = KNOWN_PROFILE | (1 << bit);
@@ -217,6 +241,10 @@ fn each_additional_required_feature_bit_stops_before_traversal() {
 				if bits == flag
 		));
 		assert_eq!(source.reads.get(), 2);
+		println!(
+			"{OBSERVATION} feature-bit {bit} {flag} {}",
+			source.reads.get()
+		);
 		feature_bits += 1;
 	}
 	println!("\nAPFS bootstrap property required-feature {feature_bits}");
@@ -267,11 +295,21 @@ fn mixed_feature_masks_stop_both_open_paths_at_each_supported_size() {
 						Some(xid) => Container::open_at(&source, options, xid),
 						None => Container::open(&source, options),
 					};
-					assert!(matches!(result, Err(Error::Unsupported {
-						descriptor: BlockAddress(0), transaction: xid,
+					let Err(Error::Unsupported {
+						descriptor: BlockAddress(0),
+						transaction: xid,
 						reason: Unsupported::IncompatibleFeatures(bits),
-					}) if xid == expected_xid && bits == required));
+					}) = result
+					else {
+						panic!("unsupported bootstrap features admitted")
+					};
+					assert_eq!((xid, bits), (expected_xid, required));
 					assert_eq!(source.reads.get(), 2);
+					println!(
+						"{OBSERVATION} feature-open {size} {optional} {read_only} {bits} {} {}",
+						u8::from(transaction.is_some()),
+						source.reads.get()
+					);
 					refused_opens += 1;
 				}
 			}

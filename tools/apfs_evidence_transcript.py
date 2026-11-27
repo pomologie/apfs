@@ -31,6 +31,8 @@ NATIVE_GEOMETRY_SUCCESS = "APFS native geometry differential completed"
 NATIVE_GEOMETRY_GROUPS = ("nxsb", "area", "map", "mapping", "header", "profile")
 BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
+BOOTSTRAP_OBSERVATION_PREFIX = "APFS bootstrap observation "
+BOOTSTRAP_DIFFERENTIAL_GROUPS = ("size", "geometry", "span", "header", "feature-bit", "feature-open")
 NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
 NATIVE_EXTENT_PREFIX = "APFS native extent "
@@ -171,6 +173,23 @@ def verify_bootstrap_properties(transcript, cases, versions):
                        for case, rows in cases.items() for values in rows)
     actual = Counter(line for line in lines if line.startswith(BOOTSTRAP_PROPERTY_PREFIX))
     require(actual == expected, "missing, duplicate, or unexpected bootstrap property scenarios")
+
+
+def verify_bootstrap_differential(transcript, cases, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "bootstrap differential transcript has the wrong Rust version")
+    require(lines.count(BOOTSTRAP_PROPERTY_SUCCESS) == 1, "bootstrap differential input run did not complete")
+    counts = cases["rows"]
+    totals = " ".join(str(counts[group]) for group in BOOTSTRAP_DIFFERENTIAL_GROUPS)
+    marker = f"APFS bootstrap differential {totals} {cases['rows_sha256']}"
+    require(lines[-1:] == [marker] and lines.count(marker) == 1, "bootstrap differential comparison is missing")
+    rows = [line.removeprefix(BOOTSTRAP_OBSERVATION_PREFIX) for line in lines
+            if line.startswith(BOOTSTRAP_OBSERVATION_PREFIX)]
+    require(Counter(row.partition(" ")[0] for row in rows) == Counter(counts),
+            "bootstrap differential observation counts do not match policy")
+    require(sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest() == cases["rows_sha256"],
+            "bootstrap observations do not match the independent comparison")
 
 
 def verify_format_fuzz(transcript, bounds, versions):

@@ -74,6 +74,19 @@
         "rows": {"nxsb": 5, "area": 10, "map": 0, "mapping": 0, "header": 5, "profile": 5}
       }
     },
+    "bootstrap-admission-differential": {
+      "obligation": "A-V01",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-bootstrap-differential.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"block_sizes": [4096, 8192, 16384, 32768, 65536], "address_bits": 64, "header_prefix_bytes": 64},
+      "bootstrap_differential": {
+        "rows": {"size": 12, "geometry": 35, "span": 120, "header": 65, "feature-bit": 63, "feature-open": 160},
+        "rows_sha256": "13acd9f050a83c8a477ef93bb64af2e630bbe9c445dc4dea102737d793419d3b"
+      }
+    },
     "format-request-fuzz": {
       "obligation": "A-V01",
       "method": "fuzz",

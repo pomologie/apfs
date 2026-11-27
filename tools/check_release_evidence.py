@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 from apfs_evidence_transcript import (
-    EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
+    EvidenceError, require, verify_bootstrap_differential, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     FULL_OPEN_HOST_FIELDS, FULL_OPEN_SOURCE_DIGESTS, verify_format_fuzz, verify_native_extent,
@@ -51,6 +51,9 @@ FULL_OPEN_SOURCES = {
 }
 CONTAINER_PROPERTY = ("A-V01", "property")
 CONTAINER_PROPERTY_METHOD = "/".join(CONTAINER_PROPERTY)
+CONTAINER_DIFFERENTIAL = ("A-V01", "differential")
+CONTAINER_DIFFERENTIAL_METHOD = "/".join(CONTAINER_DIFFERENTIAL)
+BOOTSTRAP_DIFFERENTIAL_ROWS = {"size": 12, "geometry": 35, "span": 120, "header": 65, "feature-bit": 63, "feature-open": 160}
 CONTAINER_PROPERTY_INVOCATIONS = {
     "bootstrap-properties": ("property_cases", "container/apfs-container", "check-bootstrap-properties.sh"),
     "locator-properties": ("locator_cases", "formats/apfs-format", "check-locator-properties.sh"),
@@ -60,6 +63,12 @@ CONTAINER_PROPERTY_INVOCATIONS = {
         "window_cases", "formats/apfs-format", "check-native-windows.sh", "--size-matrix",
     ),
     "complete-object-properties": ("complete_object_cases", "formats/apfs-format", "check-complete-objects.sh"),
+}
+CONTAINER_DIFFERENTIAL_INVOCATIONS = {
+    "bootstrap-admission-differential": ("bootstrap_differential", "container/apfs-container", "check-bootstrap-differential.sh"),
+    "format-checksum-differential": ("checksum_cases", "formats/apfs-format", "check-checksum.sh"),
+    "format-native-geometry-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh"),
+    "format-native-size-matrix-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh", "--size-matrix"),
 }
 
 
@@ -149,6 +158,16 @@ def verify_method_policy(name, profile):
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
     elif method == "differential":
+        if "bootstrap_differential" in profile:
+            cases = profile["bootstrap_differential"]
+            require(set(profile) == PROFILE_FIELDS | {"bootstrap_differential", "partial"}
+                    and profile["partial"] is True and "rustc" in versions
+                    and bounds == {"block_sizes": NATIVE_BLOCK_SIZES, "address_bits": 64, "header_prefix_bytes": 64}
+                    and isinstance(cases, dict) and set(cases) == {"rows", "rows_sha256"}
+                    and cases["rows"] == BOOTSTRAP_DIFFERENTIAL_ROWS
+                    and text(cases["rows_sha256"]) and SHA256.fullmatch(cases["rows_sha256"]),
+                    f"invalid bootstrap differential matrix for {name}")
+            return
         if "native_source_profile" in profile:
             require(set(profile) == PROFILE_FIELDS | {"native_source_profile", "partial"}
                     and profile["partial"] is True and "rustc" in versions and text(profile["native_source_profile"]),
@@ -454,15 +473,22 @@ def verify_native_checkpoint_policy(name, profile):
             f"invalid native ring slots or payload blocks for {label}")
 
 
-def container_property_group(profiles):
+def named_partial_group(profiles, method, invocations):
     group = {}
-    for name, (case_key, crate, script, *arguments) in CONTAINER_PROPERTY_INVOCATIONS.items():
+    for name, (case_key, crate, script, *arguments) in invocations.items():
         profile = profiles.get(name)
-        if (profile is None or (profile["obligation"], profile["method"]) != CONTAINER_PROPERTY
+        if (profile is None or (profile["obligation"], profile["method"]) != method
                 or case_key not in profile or profile["features"] or profile.get("partial") is not True
                 or profile["command"] != ["bash", f"crates/{crate}/verification/{script}", *arguments]):
             return {}
         group[name] = profile
+    return group
+
+
+def container_property_group(profiles):
+    group = named_partial_group(profiles, CONTAINER_PROPERTY, CONTAINER_PROPERTY_INVOCATIONS)
+    if not group:
+        return {}
     bootstrap = group["bootstrap-properties"]
     if bootstrap["bounds"] != {"size_bits": 32, "geometry_bits": 64, "max_header_prefix_bytes": 64,
                                "incompatible_feature_bits": 64}:
@@ -486,6 +512,21 @@ def container_property_group(profiles):
             or group["complete-object-properties"]["bounds"]["cases_per_block_size"] < 64
             or group["native-size-matrix-window-properties"]["bounds"].get("block_sizes") != NATIVE_BLOCK_SIZES
             or len(group["native-checksum-window-properties"]["window_cases"]) != 7):
+        return {}
+    return group
+
+
+def container_differential_group(profiles):
+    group = named_partial_group(profiles, CONTAINER_DIFFERENTIAL, CONTAINER_DIFFERENTIAL_INVOCATIONS)
+    if not group:
+        return {}
+    checksum = group["format-checksum-differential"]["checksum_cases"]
+    native = group["format-native-geometry-differential"]["geometry_cases"]["rows"]
+    matrix = group["format-native-size-matrix-differential"]["bounds"]
+    if (checksum["block_sizes"] != NATIVE_BLOCK_SIZES or len(checksum["fixtures"]) != 7
+            or set(checksum["uniform_words"]) != {0, 1, UINT32_MAX - 1, UINT32_MAX}
+            or native != {"nxsb": 3, "area": 6, "map": 2, "mapping": 6, "header": 5, "profile": 3}
+            or matrix.get("block_sizes") != NATIVE_BLOCK_SIZES):
         return {}
     return group
 
@@ -535,13 +576,15 @@ def required_matrix(policy, registry, requested_profile, requested_method=None):
     if requested_profile is not None:
         require(requested_profile in profiles, "unknown requested profile")
         return {requested_profile: profiles[requested_profile]}
-    property_group = container_property_group(profiles)
+    groups = {
+        CONTAINER_PROPERTY: container_property_group(profiles),
+        CONTAINER_DIFFERENTIAL: container_differential_group(profiles),
+    }
     if requested_method is not None:
-        require(requested_method == CONTAINER_PROPERTY_METHOD and property_group,
-                f"no complete configured profile group for {requested_method}")
-        return property_group
-    if property_group:
-        covered.add(CONTAINER_PROPERTY)
+        group = groups.get(tuple(requested_method.split("/")))
+        require(group, f"no complete configured profile group for {requested_method}")
+        return group
+    covered.update(method for method, group in groups.items() if group)
     missing = {(obligation, method) for obligation, methods in active.items() for method in methods} - covered
     if missing:
         unconfigured = ", ".join(f"{obligation}/{method}" for obligation, method in sorted(missing))
@@ -633,7 +676,9 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "fuzz":
         verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
-        if "native_source_profile" in profile:
+        if "bootstrap_differential" in profile:
+            verify_bootstrap_differential(transcript, profile["bootstrap_differential"], profile["tool_versions"])
+        elif "native_source_profile" in profile:
             fixtures = profile["native_checkpoints"]
             require(record.get("fixture_hash") == fixtures["ledger_set_sha256"],
                     "native fixture hash does not match the checkpoint acquisition ledgers")
@@ -732,7 +777,8 @@ def main():
     parser.add_argument("--bundle", type=Path, required=True, help="schema v1 JSON array")
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--profile", help="check one invocation instead of all release evidence")
-    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD], help="check the complete bounded method group")
+    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD, CONTAINER_DIFFERENTIAL_METHOD],
+                       help="check a complete bounded method group")
     arguments = parser.parse_args()
     try:
         count, milestone, commit = validate(arguments.root, arguments.bundle, arguments.profile, arguments.method)
