@@ -8,6 +8,7 @@ const BOOTSTRAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-0.
 const EARLY: &[u8] = include_bytes!("../../../tests/fixtures/native-block-2.bin");
 const LATEST: &[u8] = include_bytes!("../../../tests/fixtures/native-block-4.bin");
 const LATEST_MAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-3.bin");
+const EARLY_MAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-1.bin");
 
 #[test]
 fn layout_identity_accepts_cursor_changes_and_rejects_different_ring_identity() {
@@ -61,6 +62,112 @@ fn live_descriptor_ring_matches_a_slot_by_slot_walk() {
 					after_live_span == Some(next),
 					"{area:?}"
 				);
+			}
+		}
+	}
+}
+
+#[test]
+fn contiguous_ring_ownership_matches_an_independent_slot_inventory() {
+	let native = Superblock::decode(BOOTSTRAP, DEVICE_BYTES).unwrap();
+	assert!(Rings::from_bootstrap(&native).is_ok());
+
+	const FIRST_ADDRESS: u64 = 1;
+	const LAST_ADDRESS: u64 = 5;
+	const CAPACITIES: [u32; 3] = [1, 2, 3];
+	for descriptor in FIRST_ADDRESS..=LAST_ADDRESS {
+		for data in FIRST_ADDRESS..=LAST_ADDRESS {
+			for descriptor_blocks in CAPACITIES {
+				for data_blocks in CAPACITIES {
+					let mut candidate = native.clone();
+					candidate.descriptors.location =
+						AreaLocation::Contiguous(BlockAddress(descriptor));
+					candidate.descriptors.blocks = descriptor_blocks;
+					candidate.data.location = AreaLocation::Contiguous(BlockAddress(data));
+					candidate.data.blocks = data_blocks;
+					let descriptor_inventory =
+						descriptor..descriptor + u64::from(descriptor_blocks);
+					let data_inventory = data..data + u64::from(data_blocks);
+					let overlaps = descriptor_inventory
+						.clone()
+						.any(|slot| data_inventory.contains(&slot));
+					let actual = Rings::from_bootstrap(&candidate);
+					if overlaps {
+						assert!(
+							matches!(actual, Err(Corruption::Ring)),
+							"{descriptor_inventory:?}, {data_inventory:?}"
+						);
+					} else {
+						let rings = actual.unwrap();
+						assert_eq!((rings.descriptor.0, rings.data.0), (descriptor, data));
+					}
+				}
+			}
+		}
+	}
+}
+
+#[test]
+fn multi_block_mapping_admission_matches_exact_slot_ownership() {
+	const SLOTS: usize = 5;
+	const MAX_MAPPING_BLOCKS: usize = 3;
+	let mut checkpoint = Superblock::decode(EARLY, DEVICE_BYTES).unwrap();
+	let rings = Rings::from_bootstrap(&checkpoint).unwrap();
+	let native: [Mapping; 2] = Map::decode(EARLY_MAP, checkpoint.geometry)
+		.unwrap()
+		.mappings()
+		.collect::<Vec<_>>()
+		.try_into()
+		.unwrap();
+	let block_bytes = checkpoint.geometry.block_bytes();
+	checkpoint.data.blocks = SLOTS as u32;
+	let spans = || {
+		(0..SLOTS)
+			.flat_map(|start| (1..=MAX_MAPPING_BLOCKS).map(move |length| start..start + length))
+	};
+	for start in 0..SLOTS {
+		checkpoint.data.index = start as u32;
+		for length in 1..=SLOTS {
+			checkpoint.data.length = length as u32;
+			checkpoint.data.next = ((start + length) % SLOTS) as u32;
+			let mut live = [0; SLOTS];
+			for slot in (0..SLOTS).cycle().skip(start).take(length) {
+				live[slot] = 1;
+			}
+			for first in spans() {
+				for second in spans() {
+					let spans = [first.clone(), second];
+					let mut mappings = native;
+					for (mapping, span) in mappings.iter_mut().zip(&spans) {
+						mapping.physical = BlockAddress(rings.data.0 + span.start as u64);
+						mapping.size_bytes = span.len() as u32 * block_bytes;
+					}
+					let mut owners = [0; SLOTS];
+					let in_bounds = spans.iter().all(|span| {
+						let Some(window) = owners.get_mut(span.clone()) else {
+							return false;
+						};
+						for owners in window {
+							*owners += 1;
+						}
+						true
+					});
+					// A full ring can have exact physical ownership while a mapping
+					// still crosses the boundary between the first and last live slots.
+					let crosses_live_boundary = spans
+						.iter()
+						.any(|span| span.start < start && span.contains(&start));
+					let expected = if in_bounds && owners == live && !crosses_live_boundary {
+						Ok(())
+					} else {
+						Err(Corruption::Ring)
+					};
+					assert_eq!(
+						validate_mappings(&mut mappings, &checkpoint, &rings),
+						expected,
+						"live start={start} length={length}, physical spans={spans:?}",
+					);
+				}
 			}
 		}
 	}
