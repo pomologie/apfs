@@ -1,0 +1,18 @@
+** Checking the container superblock.
+   Checking the checkpoint with transaction ID 2.
+** Checking the space manager.
+** Checking the space manager free queue trees.
+** Checking the object map.
+** Checking volume $scratch/detached.raw.cdrs1.
+** Checking the APFS volume superblock.
+   The volume Pomologie Primary was formatted by newfs_apfs (2236.141.1) and last modified by .
+** Checking the object map.
+** Checking the snapshot metadata tree.
+** Checking the snapshot metadata.
+** Checking the fsroot tree.
+** Checking the extent ref tree.
+** Verifying volume object map space.
+** The volume $scratch/detached.raw.cdrs1 with UUID 001C9ACE-25E0-404C-B490-B3C5EE36035D appears to be OK.
+** Verifying allocated space.
+** The container $scratch/detached.raw.cdr appears to be OK.
+warning: $scratch/detached.raw.cdr: not a valid disk name/path
