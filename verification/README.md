@@ -74,6 +74,8 @@ The `checkpoint-native-differential` profile reuses the same fixture policy and 
 
 The `checkpoint-native-growth-differential` profile binds 17 production observations to the independent wire comparison and Apple receipts at XIDs 2 and 3. The 1 GiB captures have two 16-slot descriptor rings with retained unused slots. The checker binds the observations to the committed acquisition ledger. Use `native_growth.ledger_sha256` as `fixture_hash`. The profile covers positive growth and volume identity. The wire-derived fallback and straddling cases remain open. [Growth comparator](../crates/container/apfs-container/verification/check-native-volume-growth.py)
 
+The `checkpoint-decision-differential` profile compares 1,764 production resolver outcomes against an independent model. Each case compares the selection or typed failure, verification order and diagnostic order. The release checker binds the canonical observation transcript to the profile’s digest. This bounded comparison starts from typed descriptor states. An independent comparison of wire-level fallback and a straddling live span remains open. [Decision oracle](../crates/container/apfs-container/verification/checkpoint_decision_oracle.py)
+
 The release process supplies the logs from the actual invocations. Profile passes and the standalone checker tests are partial evidence for A-VER-02-T01. [Checker tests](../tools/test_check_release_evidence.py)
 
 ## Architecture and coverage

@@ -14,7 +14,7 @@ from check_release_evidence import (
     verify_native_geometry_policy, verify_native_window_policy,
 )
 from apfs_evidence_transcript import (
-    verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
+    verify_checkpoint_decision_differential, verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
     verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_full_open,
     verify_native_size_matrix,
     verify_complete_objects, verify_format_fuzz, verify_native_geometry,
@@ -533,6 +533,39 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
         del policy["profiles"]["checkpoint-decision-properties"]
         with self.assertRaisesRegex(EvidenceError, "no complete configured"):
             required_matrix(policy, registry, None, method)
+
+    def test_checkpoint_decision_differential_binds_outcomes_and_completion(self):
+        first = "APFS checkpoint outcome first\n"
+        second = "APFS checkpoint outcome second\n"
+        digest = hashlib.sha256((first + second).encode()).hexdigest()
+        version = "rustc 1.99.1 (58cf8f9c3 2026-10-13)\n"
+        count = "APFS checkpoint decision differential rows: 2\n"
+        completion = count + f"APFS checkpoint decision differential sha256: {digest}\n"
+        cases, bounds, versions = {"rows_sha256": digest}, {"cases": 2}, {"rustc": "1.99.1"}
+        verify_checkpoint_decision_differential(version + first + second + completion, cases, bounds, versions)
+        invalid = [
+            (version + first + completion, "missing, duplicate"),
+            (version + first + first + completion, "missing, duplicate"),
+            (version + second + first + completion, "differ from the independent comparison"),
+            (version + first + second.replace("second", "modified") + completion, "differ from the independent comparison"),
+            (version + first + second + count, "did not complete"),
+            (first + second + completion, "wrong Rust version"),
+        ]
+        for transcript, error in invalid:
+            with self.subTest(error=error), self.assertRaisesRegex(EvidenceError, error):
+                verify_checkpoint_decision_differential(transcript, cases, bounds, versions)
+
+    def test_checkpoint_decision_differential_stays_partial(self):
+        repository = Path(__file__).resolve().parents[1]
+        policy = json.loads((repository / POLICY_PATH).read_text())
+        registry = json.loads((repository / REGISTRY_PATH).read_text())
+        name = "checkpoint-decision-differential"
+        self.assertEqual(set(required_matrix(policy, registry, name)), {name})
+        with self.assertRaisesRegex(EvidenceError, "no complete configured profile group for A-V02/differential"):
+            required_matrix(policy, registry, None, "A-V02/differential")
+        policy["profiles"][name]["partial"] = False
+        with self.assertRaisesRegex(EvidenceError, "invalid checkpoint decision differential matrix"):
+            required_matrix(policy, registry, name)
 
     def test_container_native_method_requires_the_complete_native_matrix(self):
         repository = Path(__file__).resolve().parents[1]

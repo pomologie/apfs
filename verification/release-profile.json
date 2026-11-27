@@ -338,6 +338,18 @@
         "rows_sha256": "939cb53c971c5e396e77b5debb3075e8f8346599ca9a823df8c6c36495d2bfc6"
       }
     },
+    "checkpoint-decision-differential": {
+      "obligation": "A-V02",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-checkpoint-decision-differential.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"descriptor_positions": 2, "candidate_xids": 3, "cases": 1764},
+      "checkpoint_decision_differential": {
+        "rows_sha256": "26116aaebec22e152daa8878554d7b71af6abac6cb7b378f7ea5db1d529dfc7f"
+      }
+    },
     "checkpoint-model-properties": {
       "obligation": "A-V02",
       "method": "property",

@@ -222,6 +222,21 @@ def verify_checkpoint_decisions(transcript, cases, versions):
     require(observed == expected, "missing, duplicate, or unexpected checkpoint decisions")
 
 
+def verify_checkpoint_decision_differential(transcript, cases, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "checkpoint decision differential transcript has the wrong Rust version")
+    expected_end = [f"APFS checkpoint decision differential rows: {bounds['cases']}",
+                    f"APFS checkpoint decision differential sha256: {cases['rows_sha256']}"]
+    require(lines[-2:] == expected_end and all(lines.count(line) == 1 for line in expected_end),
+            "checkpoint decision differential did not complete the declared matrix")
+    rows = [line for line in lines if line.startswith("APFS checkpoint outcome ")]
+    require(len(rows) == bounds["cases"] and len(set(rows)) == len(rows),
+            "missing, duplicate, or unexpected checkpoint decision outcomes")
+    digest = sha256("".join(f"{row}\n" for row in rows).encode("utf-8")).hexdigest()
+    require(digest == cases["rows_sha256"], "checkpoint decision outcomes differ from the independent comparison")
+
+
 def verify_format_fuzz(transcript, bounds, versions, inputs):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1

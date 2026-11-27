@@ -11,7 +11,7 @@ import sys
 
 from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_differential, verify_bootstrap_properties,
-    verify_checkpoint_decisions, verify_checkpoint_layouts, verify_checkpoint_model,
+    verify_checkpoint_decision_differential, verify_checkpoint_decisions, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     FULL_OPEN_HOST_FIELDS, FULL_OPEN_SOURCE_DIGESTS, verify_format_fuzz, verify_native_extent,
@@ -176,6 +176,15 @@ def verify_method_policy(name, profile):
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
     elif method == "differential":
+        if "checkpoint_decision_differential" in profile:
+            cases = profile["checkpoint_decision_differential"]
+            require(set(profile) == PROFILE_FIELDS | {"checkpoint_decision_differential", "partial"}
+                    and profile["partial"] is True and profile["obligation"] == "A-V02" and "rustc" in versions
+                    and bounds == {"descriptor_positions": 2, "candidate_xids": 3, "cases": 1764}
+                    and isinstance(cases, dict) and set(cases) == {"rows_sha256"}
+                    and text(cases["rows_sha256"]) and SHA256.fullmatch(cases["rows_sha256"]),
+                    f"invalid checkpoint decision differential matrix for {name}")
+            return
         if "native_growth" in profile:
             cases = profile["native_growth"]
             require(set(profile) == PROFILE_FIELDS | {"native_growth", "partial"} and profile["partial"] is True
@@ -758,7 +767,10 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "fuzz":
         verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"], profile["request_inputs"])
     elif profile["method"] == "differential":
-        if "native_growth" in profile:
+        if "checkpoint_decision_differential" in profile:
+            verify_checkpoint_decision_differential(
+                transcript, profile["checkpoint_decision_differential"], profile["bounds"], profile["tool_versions"])
+        elif "native_growth" in profile:
             cases = profile["native_growth"]
             require(record.get("fixture_hash") == cases["ledger_sha256"],
                     "native growth fixture hash does not match the acquisition ledger")

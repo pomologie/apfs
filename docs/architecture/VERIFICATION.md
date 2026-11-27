@@ -69,7 +69,7 @@ The acceptance catalog records three passing scenarios for A-CONT-01. A-V01 is a
 **Requirement links:** A-CONT-02.\
 **Evidence:** tlc, property, fuzz, differential, native; status planned.
 
-The bounded TLC model and the Rust comparison passed. The missing-map counterexample was reproduced in the altered model and replayed against the Rust fixture. Production selection also agrees with Apple’s checker on retained native snapshots before and after reuse of the earliest descriptor slots. Fuzzing and native differential evidence for damaged rings and a live span crossing the ring boundary remain open. [Checkpoint evidence](../../crates/container/apfs-container/verification/README.md#a-v02-checkpoint-selection) · [Native checkpoint replay](../../crates/filesystem/apfs-reader/tests/view/native_checkpoints.rs)
+The bounded TLC model and the Rust comparison passed. The missing-map counterexample was reproduced in the altered model and replayed against the Rust fixture. An independent typed comparison covers 1,764 cases and checks the selected checkpoint or failure, verification attempts, and contextual diagnostics. Production selection also agrees with Apple’s checker on retained native snapshots before and after reuse of the earliest descriptor slots. Fuzzing and native differential evidence for damaged rings and a live span crossing the ring boundary remain open. [Checkpoint evidence](../../crates/container/apfs-container/verification/README.md#a-v02-checkpoint-selection) · [Native checkpoint replay](../../crates/filesystem/apfs-reader/tests/view/native_checkpoints.rs)
 
 ### A-V03 — object mapping
 **Target:** apfs-container / object-map resolution.\
