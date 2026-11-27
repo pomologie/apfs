@@ -29,6 +29,8 @@ The five archives from `7aa343c` passed the same extracted all-features check on
 
 The five archives from `28c3a8a` passed 228 tests after extraction on Rust 1.98.0, with all 24 registry package pins preserved. The evidence and archives are in `target/release-candidates/v0.1.0/28c3a8a-cargo/`. The verification record SHA-256 is `c196ae59681a4d0396fb4284e4e769f3675a2e19e7cef9dc26eeb4bc004b70aa`.
 
+The five archives from `8878ed1`, ExaCopy's mounted source pin, passed all 229 tests after extraction on arm64 macOS with Rust 1.98.0 and all 24 registry pins preserved. The suite included the mounted regressions for bounded xattr inventory and resource-fork absence. The `apfs-mounted` archive SHA-256 is `2f29d1bd40efe8c4b1064f7111f20d654e92163569d89d377f17bc8705b2a503`. The verification record is in `target/release-candidates/v0.1.0/8878ed1-cargo/` with SHA-256 `61941499415129f10a3384a533b822cabad88551f5adeb377bf1260e032ad954`. Consumer integration and native qualification have separate evidence. [Mounted integration status](../features/MOUNTED.md)
+
 ## Verification integration
 
 The local `VERIFICATION.md` and `verification/obligations.json` define mandatory profile-specific verification gates in addition to the original acceptance tests. Apply ecosystem standard EVS-1 (copy `shared/VERIFICATION.md` as `docs/architecture/ECOSYSTEM_VERIFICATION.md`). No required proof, model check, native test or critical fault gate can be substituted by coverage or a self-generated round trip. `cargo-nextest`, property tests, fuzz/corpus replay, coverage and deterministic architecture checks are required; formal methods activate at the milestones in the obligation registry.
