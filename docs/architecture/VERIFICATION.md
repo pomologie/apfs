@@ -27,13 +27,15 @@ The clean `bfadae9` replay passed all 219 no-default-features workspace tests on
 
 The clean `407b709` replay passed all 225 tests and measured 6,267 of 7,186 lines. Typed checkpoint tests increased validation branch coverage from 48 to 61 of 92 outcomes and superblock branch coverage from 30 to 33 of 36. The report is in `target/verification-evidence/v0.1.0/407b709-critical-coverage/` with SHA-256 `55fd44b03320265e5c22f67dad72128291fe7063113d343022d2b9201114a602`.
 
+The clean `dd371c9` replay passed all 227 tests. Independent inventories compared 225 descriptor and data ring placements and 5,625 typed multiblock mapping layouts with production. The mapping check requires exact ownership and rejects a mapping that crosses the logical boundary of a full ring. Checkpoint validation reached 211 of 236 lines and 63 of 92 branch outcomes. The report is in `target/verification-evidence/v0.1.0/dd371c9-critical-coverage/` with SHA-256 `567a0b883ffcd78ff330f914db1f418adcd9115d58da9f6ac2d0b7b490d0f8d0`.
+
 | Critical source | Lines | Branch outcomes |
 |---|---:|---:|
 | Object header and checksum | 36 / 36 | 6 / 6 |
 | Superblock format | 153 / 154 | 33 / 36 |
 | Checkpoint record format | 54 / 57 | 11 / 16 |
 | Container checkpoint loading | 140 / 140 | 20 / 20 |
-| Checkpoint validation | 210 / 236 | 61 / 92 |
+| Checkpoint validation | 211 / 236 | 63 / 92 |
 | Container extent probe | 94 / 98 | 9 / 10 |
 | Checkpoint selection | 37 / 37 | 0 / 0 |
 
