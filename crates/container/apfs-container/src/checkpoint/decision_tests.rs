@@ -4,6 +4,7 @@ extern crate std;
 
 use apfs_core::ByteOffset;
 use apfs_format::checkpoint::Map;
+use std::string::String;
 
 use super::{
 	BlockAddress, Candidate, Corruption, Damage, Diagnostic, Error, Mapping, Scan, Selected,
@@ -19,6 +20,7 @@ const DEVICE_BYTES: u64 = 64 << 20;
 const SUPERBLOCK: &[u8] = include_bytes!("../../tests/fixtures/native-block-4.bin");
 const MAP: &[u8] = include_bytes!("../../tests/fixtures/native-block-3.bin");
 const UNSUPPORTED_MAP: Unsupported = Unsupported::CheckpointMapFlags(1 << 31);
+const OUTCOME_TRANSCRIPT: &str = "APFS_CHECKPOINT_DECISION_OUTCOMES";
 
 type CandidateResult = Result<(Superblock, Vec<Mapping>), Error<BlockAddress>>;
 
@@ -144,6 +146,72 @@ fn observe(result: Result<Selected, Error<BlockAddress>>, mappings: &[Mapping]) 
 	}
 }
 
+fn transaction_field(transaction: Option<TransactionId>) -> String {
+	transaction.map_or_else(|| String::from("-"), |xid| std::format!("{}", xid.0))
+}
+
+fn damage_field(damage: &Damage) -> String {
+	let reason = match damage.reason {
+		Corruption::Format(apfs_format::Error::InvalidChecksum) => "invalid-checksum",
+		Corruption::Object => "object",
+		_ => panic!("unexpected typed decision damage: {damage:?}"),
+	};
+	std::format!(
+		"{}:{}:{reason}",
+		damage.descriptor.0,
+		transaction_field(damage.transaction)
+	)
+}
+
+fn fields(values: impl Iterator<Item = String>) -> String {
+	let values: Vec<_> = values.collect();
+	if values.is_empty() {
+		String::from("-")
+	} else {
+		values.join(",")
+	}
+}
+
+fn outcome_fields(outcome: &Outcome) -> (String, &[Diagnostic]) {
+	match outcome {
+		Outcome::Selected(address, xid, diagnostics) => (
+			std::format!("selected {} {}", address.0, xid.0),
+			diagnostics,
+		),
+		Outcome::Absent(request, diagnostics) => (
+			std::format!("absent {}", transaction_field(*request)),
+			diagnostics,
+		),
+		Outcome::Ambiguous(xid) => (std::format!("ambiguous {}", xid.0), &[]),
+		Outcome::Corrupt(damage) => (std::format!("corrupt {}", damage_field(damage)), &[]),
+		Outcome::Unsupported(address, xid, Unsupported::CheckpointMapFlags(flags)) => (
+			std::format!(
+				"unsupported {} {} checkpoint-map-flags {flags}",
+				address.0,
+				xid.0
+			),
+			&[],
+		),
+		Outcome::Unsupported(..) => panic!("unexpected typed decision outcome: {outcome:?}"),
+		Outcome::Unreadable(offset, source) => {
+			(std::format!("unreadable {} {}", offset.0, source.0), &[])
+		}
+	}
+}
+
+fn print_observation(case: &str, outcome: &Outcome, attempts: &[BlockAddress]) {
+	let (result, diagnostics) = outcome_fields(outcome);
+	let attempts = fields(attempts.iter().map(|address| std::format!("{}", address.0)));
+	let diagnostics = fields(diagnostics.iter().map(|diagnostic| match diagnostic {
+		Diagnostic::Rejected(damage) => std::format!("rejected:{}", damage_field(damage)),
+		Diagnostic::NewerBootstrap {
+			advertised,
+			selected,
+		} => std::format!("newer-bootstrap:{}:{}", advertised.0, selected.0),
+	}));
+	std::println!("APFS checkpoint outcome {case} | {result} | {attempts} | {diagnostics}");
+}
+
 fn expected(slots: [Slot; 2], request: Option<TransactionId>) -> (Outcome, Vec<BlockAddress>) {
 	// Classify which XIDs would decide the outcome, then take the maximum.
 	// Recovery attempts above that boundary are derived separately.
@@ -212,6 +280,7 @@ fn typed_checkpoint_decisions_match_a_decisive_xid_model() {
 		.unwrap()
 		.mappings()
 		.collect();
+	let emit_outcomes = std::env::var_os(OUTCOME_TRANSCRIPT).is_some();
 	std::println!();
 	for first_xid in XIDS {
 		for second_xid in XIDS {
@@ -230,16 +299,21 @@ fn typed_checkpoint_decisions_match_a_decisive_xid_model() {
 						},
 					];
 					for request in core::iter::once(None).chain(XIDS.map(Some)) {
-						check_case(slots, request, &superblock, &mappings);
+						let (outcome, attempts) =
+							check_case(slots, request, &superblock, &mappings);
 						let request = request.map_or_else(
-							|| std::string::String::from("automatic"),
+							|| String::from("automatic"),
 							|xid| std::format!("{}", xid.0),
 						);
-						std::println!(
-							"APFS checkpoint decision {} {first_state:?} {} {second_state:?} {request}",
+						let case = std::format!(
+							"{} {first_state:?} {} {second_state:?} {request}",
 							first_xid.0,
 							second_xid.0
 						);
+						std::println!("APFS checkpoint decision {case}");
+						if emit_outcomes {
+							print_observation(&case, &outcome, &attempts);
+						}
 					}
 				}
 			}
@@ -252,7 +326,7 @@ fn check_case(
 	request: Option<TransactionId>,
 	superblock: &Superblock,
 	mappings: &[Mapping],
-) {
+) -> (Outcome, Vec<BlockAddress>) {
 	let mut scan = Scan {
 		candidates: Vec::new(),
 		diagnostics: Vec::new(),
@@ -278,9 +352,11 @@ fn check_case(
 		assert_eq!(slot.xid, candidate.xid);
 		slot.verify(superblock, mappings)
 	});
+	let actual = (observe(result, mappings), attempts);
 	assert_eq!(
-		(observe(result, mappings), attempts),
+		actual,
 		expected(slots, request),
 		"{slots:?}, exact {request:?}"
 	);
+	actual
 }
