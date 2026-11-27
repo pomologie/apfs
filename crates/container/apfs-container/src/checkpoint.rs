@@ -15,6 +15,8 @@ use crate::{
 };
 
 #[cfg(test)]
+mod decision_tests;
+#[cfg(test)]
 mod tests;
 mod validate;
 
@@ -83,10 +85,25 @@ pub(super) fn select<S: ReadAt>(
 		return Err(Error::Limit(Limit::DescriptorBlocks));
 	}
 	let mut scratch = Vec::new();
-	let Scan {
+	let scan = discovery.scan(&bootstrap, &ring, transaction, &mut scratch)?;
+	resolve_candidates(
+		scan,
+		bootstrap.object.transaction,
+		transaction,
+		|candidate| discovery.read_candidate(&bootstrap, &ring, candidate, &mut scratch),
+	)
+}
+
+// The scan already filters exact requests. Only candidate corruption allows retrying here.
+fn resolve_candidates<E>(
+	Scan {
 		mut candidates,
 		mut diagnostics,
-	} = discovery.scan(&bootstrap, &ring, transaction, &mut scratch)?;
+	}: Scan,
+	advertised: TransactionId,
+	transaction: Option<TransactionId>,
+	mut verify: impl FnMut(Candidate) -> Result<(Superblock, Vec<Mapping>), Error<E>>,
+) -> Result<Selected, Error<E>> {
 	candidates.sort_unstable_by_key(|candidate| Reverse(candidate.xid));
 	for (index, candidate) in candidates.iter().enumerate() {
 		if candidates
@@ -96,7 +113,7 @@ pub(super) fn select<S: ReadAt>(
 			return Err(Error::AmbiguousTransaction(candidate.xid));
 		}
 		let address = candidate.address;
-		let result = discovery.read_candidate(&bootstrap, &ring, *candidate, &mut scratch);
+		let result = verify(*candidate);
 		let (selected, mappings) = match result {
 			Ok(complete) => complete,
 			Err(Error::CandidateCorruption(damage)) if transaction.is_none() => {
@@ -105,11 +122,11 @@ pub(super) fn select<S: ReadAt>(
 			}
 			Err(error) => return Err(error),
 		};
-		if transaction.is_none() && bootstrap.object.transaction > selected.object.transaction {
+		if transaction.is_none() && advertised > selected.object.transaction {
 			push(
 				&mut diagnostics,
 				Diagnostic::NewerBootstrap {
-					advertised: bootstrap.object.transaction,
+					advertised,
 					selected: selected.object.transaction,
 				},
 			)?;
