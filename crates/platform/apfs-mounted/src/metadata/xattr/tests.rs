@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn confirms_fork_absence_only_with_two_conclusive_observations() {
+	for (attribute_length, reported_length, absent) in [
+		(None, Some(0), true),
+		(None, None, false),
+		(Some(0), Some(0), false),
+		(Some(0), None, false),
+		(None, Some(1), false),
+	] {
+		let fork = ResourceFork {
+			attribute_length,
+			reported_length,
+		};
+		assert_eq!(fork.confirmed_absent(), absent, "{fork:?}");
+	}
+}
+
+#[test]
 fn validates_list_framing_and_preserves_raw_name_bytes() {
 	let names = parse_names(b"com.apple.provenance\0user.\xff\0").unwrap();
 	assert_eq!(names[0].as_c_str(), c"com.apple.provenance");

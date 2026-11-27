@@ -50,6 +50,12 @@ fn native_inventory_distinguishes_missing_empty_and_nonempty_values() {
 		XattrVisibility::Visible,
 		XattrVisibility::IncludingCompression,
 	] {
+		let minimum_inventory_bytes = ATTR.to_bytes_with_nul().len();
+		assert!(matches!(
+			list_xattrs(&file, visibility, 0),
+			Err(ObservationError::Limit { limit: 0, observed })
+				if observed >= minimum_inventory_bytes
+		));
 		assert!(
 			list_xattrs(&file, visibility, 4096)
 				.unwrap()
