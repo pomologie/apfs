@@ -13,7 +13,8 @@ from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
-    verify_format_fuzz, verify_native_extent, verify_native_size_matrix, verify_native_windows, verify_tlc,
+    FULL_OPEN_HOST_FIELDS, FULL_OPEN_SOURCE_DIGESTS, verify_format_fuzz, verify_native_extent,
+    verify_native_full_open, verify_native_size_matrix, verify_native_windows, verify_tlc,
 )
 
 
@@ -41,6 +42,11 @@ BOOTSTRAP_PROPERTY_COLUMNS = {
 NATIVE_BOOTSTRAP_HASH_FIELDS = {"ledger_sha256", "raw_sha256", "metadata_sha256", "bootstrap_sha256", "fsroot_sha256"}
 NATIVE_BOOTSTRAP_ID_FIELDS = {"os_version", "os_build", "architecture", "oracle_version"}
 NATIVE_BOOTSTRAP_REFUSALS = {"size", "count", "type", "checksum", "required-feature"}
+FULL_OPEN_DIRECTORY = "crates/container/apfs-container/verification"
+FULL_OPEN_SOURCES = {
+    "runner_sha256": f"{FULL_OPEN_DIRECTORY}/check_native_checkpoint_open.py",
+    "harness_sha256": f"{FULL_OPEN_DIRECTORY}/native_checkpoint_open.rs",
+}
 
 
 def unique_object(pairs):
@@ -185,6 +191,8 @@ def verify_method_policy(name, profile):
             verify_native_extent_policy(name, profile)
         elif "native_size_matrix" in profile:
             verify_native_size_matrix_policy(name, profile)
+        elif "native_full_open" in profile:
+            verify_native_full_open_policy(name, profile)
         else:
             verify_native_bootstrap_policy(name, profile)
     else:
@@ -364,6 +372,20 @@ def verify_native_size_matrix_policy(name, profile):
             and all(positive_integer(value) for value in bounds.values())
             and bounds["prefix_bytes"] < min(sizes) and bounds["extent_bytes"] % max(sizes) == 0,
             f"invalid native size matrix bounds for {name}")
+
+
+def verify_native_full_open_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"native_full_open", "partial"} and profile["partial"] is True
+            and set(profile["tool_versions"]) == {"rustc", "apple_format"}
+            and profile["command"] == ["python3", "-B", FULL_OPEN_SOURCES["runner_sha256"]],
+            f"invalid native full-open policy for {name}")
+    provenance = profile["native_full_open"]
+    require(isinstance(provenance, dict) and set(provenance) == set(FULL_OPEN_HOST_FIELDS + FULL_OPEN_SOURCE_DIGESTS)
+            and all(text(provenance[key]) for key in FULL_OPEN_HOST_FIELDS)
+            and all(text(provenance[key]) and SHA256.fullmatch(provenance[key]) for key in FULL_OPEN_SOURCE_DIGESTS),
+            f"invalid native full-open provenance for {name}")
+    require(profile["bounds"] == {"image_bytes": 128 << 20, "block_sizes": [4096, 8192, 16384, 32768, 65536]},
+            f"invalid native full-open matrix for {name}")
 
 
 def verify_native_checkpoint_policy(name, profile):
@@ -571,6 +593,11 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             require(record.get("fixture_hash") == fixture["ledger_sha256"],
                     "native fixture hash does not match the size matrix acquisition ledger")
             verify_native_size_matrix(transcript, fixture, profile["bounds"], profile["tool_versions"])
+        elif "native_full_open" in profile:
+            provenance = profile["native_full_open"]
+            require("fixture_hash" not in record and runner["os"] == "macos" and runner["arch"] == provenance["arch"],
+                    "native full-open provenance requires fresh inputs on the recorded macOS host")
+            verify_native_full_open(parse_json(transcript), provenance, profile["bounds"], profile["tool_versions"])
         else:
             require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
                     "native fixture hash does not match the acquisition ledger")
@@ -589,6 +616,12 @@ def validate(root, bundle, requested_profile):
     policy = parse_json(git_output(root, "show", f"{commit}:{POLICY_PATH}"))
     registry = parse_json(git_output(root, "show", f"{commit}:{REGISTRY_PATH}"))
     profiles = required_matrix(policy, registry, requested_profile)
+    for profile in profiles.values():
+        if "native_full_open" in profile:
+            for key, path in FULL_OPEN_SOURCES.items():
+                source = git_output(root, "show", f"{commit}:{path}")
+                require(hashlib.sha256(source).hexdigest() == profile["native_full_open"][key],
+                        f"native full-open source digest differs from the committed bytes: {path}")
     digest = archive_hash(root, commit)
     bundle = bundle.resolve(strict=True)
     records = parse_json(bundle.read_bytes())

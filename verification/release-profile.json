@@ -209,6 +209,22 @@
         }
       }
     },
+    "checkpoint-native-full-open": {
+      "obligation": "A-V02",
+      "method": "native",
+      "partial": true,
+      "features": [],
+      "command": ["python3", "-B", "crates/container/apfs-container/verification/check_native_checkpoint_open.py"],
+      "tool_versions": {"rustc": "1.99.1", "apple_format": "2236.141.1"},
+      "bounds": {"image_bytes": 134217728, "block_sizes": [4096, 8192, 16384, 32768, 65536]},
+      "native_full_open": {
+        "macos": "14.7.2",
+        "macos_build": "23H311",
+        "arch": "arm64",
+        "runner_sha256": "c2d68fca1177961a3171492587f1d0eb3202111982bdc6bd9dc37301eafcf53c",
+        "harness_sha256": "7239b7e7d42a20f7a56a77313e4b0624e7daa718d6e330dfbcc0a96c9f4150ba"
+      }
+    },
     "checkpoint-native-replay": {
       "obligation": "A-V02",
       "method": "native",

@@ -3,6 +3,7 @@
 import re
 from collections import Counter
 from hashlib import sha256
+from uuid import UUID
 
 
 class EvidenceError(ValueError):
@@ -353,6 +354,66 @@ def verify_native_size_matrix(transcript, fixture, bounds, versions):
 def checkpoint_replay_facts(name, snapshot, slots):
     return (f"{name} {snapshot['xid']} {snapshot['descriptor']} {slots} {snapshot['next_slot']} "
             f"{snapshot['live_slots']} {snapshot['descriptor_xids']} {snapshot['payload_blocks']}")
+
+
+FULL_OPEN_HOST_FIELDS = ("macos", "macos_build", "arch")
+FULL_OPEN_SOURCE_DIGESTS = ("runner_sha256", "harness_sha256")
+FULL_OPEN_CHECKPOINT = (
+    "block_bytes", "block_count", "xid", "descriptor", "descriptor_ring_slots",
+    "descriptor_ring_index", "descriptor_ring_length", "descriptor_ring_next", "mapping_count",
+)
+FULL_OPEN_RAW = "$scratch/checkpoint.raw"
+FULL_OPEN_TEMP_PATH = re.compile(r"/(?:private/)?(?:var/folders|tmp)/|/dev/r[^\s]*checkpoint\.raw")
+
+
+def verify_native_full_open(report, provenance, bounds, versions):
+    require(isinstance(report, dict) and set(report) == set(FULL_OPEN_HOST_FIELDS + FULL_OPEN_SOURCE_DIGESTS)
+            | {"rust", "image_bytes", "build_log", "results"}, "invalid native full-open report")
+    require(all(report[key] == provenance[key] for key in FULL_OPEN_HOST_FIELDS + FULL_OPEN_SOURCE_DIGESTS)
+            and re.fullmatch(rf"rustc {re.escape(versions['rustc'])} \([^)]+\)", report["rust"])
+            and report["image_bytes"] == bounds["image_bytes"], "native full-open provenance differs from policy")
+    build_log = report["build_log"]
+    require(isinstance(build_log, str) and bool(build_log.strip()) and not FULL_OPEN_TEMP_PATH.search(build_log),
+            "native full-open build log is incomplete or contains temporary paths")
+    results = report["results"]
+    require(isinstance(results, list) and len(results) == len(bounds["block_sizes"]),
+            "incomplete native full-open matrix")
+    for size, row in zip(bounds["block_sizes"], results, strict=True):
+        verify_native_full_open_row(row, size, bounds["image_bytes"], versions["apple_format"])
+
+
+def verify_native_full_open_row(row, size, image_bytes, apple_format):
+    extras = {"volume_uuid", "volume_label", "raw_sha256", "raw_sha256_after", "raw_unchanged",
+              "formatter", "checker", "formatter_log", "checker_log", "rust_log"}
+    require(isinstance(row, dict) and set(row) == set(FULL_OPEN_CHECKPOINT) | extras,
+            "incomplete native full-open row")
+    require(all(type(row[key]) is int for key in FULL_OPEN_CHECKPOINT), "invalid native checkpoint arithmetic")
+    _, count, xid, address, slots, index, length, next_slot, mappings = (row[key] for key in FULL_OPEN_CHECKPOINT)
+    require(size == row["block_bytes"] and count * size == image_bytes and xid > 0 and 0 < address < count
+            and 0 <= index < slots <= count and 2 <= length <= slots and (index + length) % slots == next_slot
+            and mappings > 0, "invalid native checkpoint geometry")
+    require(row["raw_unchanged"] is True and re.fullmatch(r"[0-9a-f]{64}", row["raw_sha256"])
+            and row["raw_sha256"] == row["raw_sha256_after"], "native raw image digests differ")
+    label = f"Pomologie {size}"
+    require(row["formatter"] == ["/sbin/newfs_apfs", "-b", str(size), "-v", label, FULL_OPEN_RAW]
+            and row["checker"] == ["/sbin/fsck_apfs", "-n", FULL_OPEN_RAW], "unexpected native acquisition command")
+    for key in ("formatter_log", "checker_log", "rust_log"):
+        log = row[key]
+        require(isinstance(log, str) and bool(log.strip()) and not FULL_OPEN_TEMP_PATH.search(log),
+                "native full-open transcript is incomplete or contains temporary paths")
+    oracle = row["checker_log"]
+    xids = re.findall(r"Checking the checkpoint with transaction ID (\d+)\.", oracle)
+    volumes = re.findall(r"with UUID ([0-9a-fA-F-]{36}) appears to be OK\.", oracle)
+    healthy = re.findall(r"(?m)^\*\* The container .+ appears to be OK\.$", oracle)
+    require(xids == [str(xid)] and len(volumes) == len(healthy) == 1
+            and f"The volume {label} was formatted by newfs_apfs ({apple_format})" in oracle,
+            "native Apple full-open observation differs from policy")
+    uuid = UUID(volumes[0]).hex
+    require((row["volume_uuid"], row["volume_label"]) == (uuid, label),
+            "native Apple and Rust volume identities differ")
+    checkpoint = " ".join(str(row[key]) for key in FULL_OPEN_CHECKPOINT)
+    require(row["rust_log"].splitlines() == [f"checkpoint {checkpoint}", f"volume {uuid} {label}"],
+            "native Rust full-open transcript differs from the observation")
 
 
 def verify_native_checkpoints(transcript, fixtures, bounds, versions):

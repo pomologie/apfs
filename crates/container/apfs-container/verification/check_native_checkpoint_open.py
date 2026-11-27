@@ -22,9 +22,13 @@ VOLUME_UUID = re.compile(r"with UUID ([0-9a-fA-F-]{36}) appears to be OK\.")
 HEALTHY_CONTAINER = re.compile(r"The container .+ appears to be OK\.")
 RUST_HARNESS = Path(__file__).with_name("native_checkpoint_open.rs").resolve()
 CRATE_DIR = RUST_HARNESS.parent.parent
+SOURCE_ROOT = CRATE_DIR.parents[2]
+TEMP_LOCATION = re.compile(r"/(?:private/)?(?:var/folders|tmp)/[^\s)]+")
+ORACLE_VOLUME_PATH = re.compile(r"/dev/r[^\s]*checkpoint\.raws1")
 
 
 def run(*args, env=None, timeout=120):
+    env = (os.environ if env is None else env) | {"LC_ALL": "C"}
     result = subprocess.run(args, env=env, timeout=timeout,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if result.returncode:
@@ -35,6 +39,12 @@ def run(*args, env=None, timeout=120):
 def hash_file(path):
     with path.open("rb") as file:
         return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def redact_log(log, scratch):
+    log = log.replace(str(scratch), "$scratch").replace(str(SOURCE_ROOT), "$source")
+    log = ORACLE_VOLUME_PATH.sub("$scratch/checkpoint.raws1", log)
+    return TEMP_LOCATION.sub("$temporary", log)
 
 
 def build_harness(scratch):
@@ -56,7 +66,8 @@ path = {json.dumps(str(RUST_HARNESS), ensure_ascii=False)}
 apfs-container = {{ path = {json.dumps(str(CRATE_DIR), ensure_ascii=False)}, default-features = false }}
 ''')
     env = os.environ | {"PATH": str(rustc.parent) + os.pathsep + os.environ["PATH"],
-                        "RUSTC": str(rustc)}
+                        "RUSTC": str(rustc), "CARGO_PROFILE_DEV_DEBUG": "0",
+                        "CARGO_PROFILE_DEV_STRIP": "none", "CARGO_INCREMENTAL": "0"}
     run(cargo, "generate-lockfile", "--offline", "--manifest-path", manifest, env=env)
     build_log = run(cargo, "build", "--offline", "--locked", "--manifest-path", manifest,
                     "--target-dir", target, env=env)
@@ -93,15 +104,16 @@ def observe(scratch, harness, block_bytes):
         digest = hash_file(raw)
         oracle_log = run(CHECKER, "-n", raw)
         rust_log = run(harness, raw)
-        if hash_file(raw) != digest:
+        final_digest = hash_file(raw)
+        if final_digest != digest:
             raise ValueError(f"raw image changed during read-only checks at {block_bytes}")
         facts = compare_checkpoint(oracle_log, rust_log, block_bytes, label)
-        return facts | {"raw_sha256": digest, "raw_unchanged": True,
+        return facts | {"raw_sha256": digest, "raw_sha256_after": final_digest, "raw_unchanged": True,
                         "formatter": [FORMATTER, "-b", str(block_bytes), "-v", label,
                                       "$scratch/checkpoint.raw"],
                         "checker": [CHECKER, "-n", "$scratch/checkpoint.raw"],
-                        "formatter_log": formatter_log.replace(str(scratch), "$scratch"),
-                        "checker_log": oracle_log.replace(str(scratch), "$scratch"),
+                        "formatter_log": redact_log(formatter_log, scratch),
+                        "checker_log": redact_log(oracle_log, scratch),
                         "rust_log": rust_log}
     finally:
         raw.unlink(missing_ok=True)
@@ -118,7 +130,7 @@ def main():
                   "arch": platform.machine(), "rust": rust_version, "image_bytes": IMAGE_BYTES,
                   "harness_sha256": hash_file(RUST_HARNESS),
                   "runner_sha256": hash_file(Path(__file__)),
-                  "build_log": build_log.replace(str(scratch), "$scratch"),
+                  "build_log": redact_log(build_log, scratch),
                   "results": [observe(scratch, harness, size) for size in BLOCK_SIZES]}
     print(json.dumps(report, indent=2))
 

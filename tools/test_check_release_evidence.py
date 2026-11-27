@@ -7,11 +7,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from uuid import UUID
 
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
-    verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_size_matrix,
+    verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_full_open,
+    verify_native_size_matrix,
     verify_complete_objects, verify_format_fuzz, verify_native_geometry,
     verify_native_windows,
     verify_span_properties,
@@ -221,6 +223,45 @@ class ReleaseEvidenceTests(unittest.TestCase):
                            fixture_hash=NATIVE_FIXTURE["ledger_sha256"])
         del self.record["proof"]
         self.set_transcript(NATIVE_TRANSCRIPT)
+
+    def test_fresh_full_open_matches_each_runs_oracle_and_image_digest(self):
+        provenance = {"macos": "14.7.2", "macos_build": "23H311", "arch": "arm64",
+                      "runner_sha256": "a" * 64, "harness_sha256": "b" * 64}
+        bounds = {"image_bytes": 134217728, "block_sizes": [4096, 8192]}
+        versions = {"rustc": "1.99.1", "apple_format": "2236.141.1"}
+        rows = []
+        for index, size in enumerate(bounds["block_sizes"], 1):
+            uuid = UUID(int=index)
+            label = f"Pomologie {size}"
+            count = bounds["image_bytes"] // size
+            digest = hashlib.sha256(str(size).encode("ascii")).hexdigest()
+            rows.append({
+                "block_bytes": size, "block_count": count, "xid": 2, "descriptor": 4, "descriptor_ring_slots": 8,
+                "descriptor_ring_index": 2, "descriptor_ring_length": 2, "descriptor_ring_next": 4, "mapping_count": 4,
+                "volume_uuid": uuid.hex, "volume_label": label, "raw_sha256": digest, "raw_sha256_after": digest,
+                "raw_unchanged": True, "formatter": ["/sbin/newfs_apfs", "-b", str(size), "-v", label, "$scratch/checkpoint.raw"],
+                "checker": ["/sbin/fsck_apfs", "-n", "$scratch/checkpoint.raw"], "formatter_log": "completed",
+                "checker_log": (f"Checking the checkpoint with transaction ID 2.\n"
+                                f"The volume {label} was formatted by newfs_apfs (2236.141.1)\n"
+                                f"The volume sample with UUID {str(uuid).upper()} appears to be OK.\n"
+                                "** The container sample appears to be OK.\n"),
+                "rust_log": f"checkpoint {size} {count} 2 4 8 2 2 4 4\nvolume {uuid.hex} {label}\n",
+            })
+        report = provenance | {"build_log": "Compiled $scratch", "rust": "rustc 1.99.1 (pinned)",
+                               "image_bytes": bounds["image_bytes"], "results": rows}
+        verify_native_full_open(report, provenance, bounds, versions)
+        for field, value, expected in (
+            ("raw_sha256_after", "0" * 64, "digests differ"),
+            ("volume_uuid", rows[0]["volume_uuid"], "volume identities differ"),
+            ("checker", ["/sbin/fsck_apfs", "$scratch/checkpoint.raw"], "acquisition command"),
+            ("formatter_log", "/private/tmp/test/checkpoint.raw", "temporary paths"),
+            ("rust_log", rows[0]["rust_log"], "Rust full-open transcript"),
+        ):
+            altered = report | {"results": [rows[0], rows[1] | {field: value}]}
+            with self.subTest(field=field), self.assertRaisesRegex(EvidenceError, expected):
+                verify_native_full_open(altered, provenance, bounds, versions)
+        with self.assertRaisesRegex(EvidenceError, "incomplete native full-open matrix"):
+            verify_native_full_open(report | {"results": rows[:1]}, provenance, bounds, versions)
 
     def test_native_size_matrix_requires_each_size_and_both_read_patterns(self):
         fixture = {"ledger_sha256": "a" * 64, "host": ["14.7.2", "23H311", "arm64"], "checksums": {
