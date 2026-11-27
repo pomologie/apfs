@@ -39,6 +39,7 @@ NATIVE_BLOCK_SIZES = [4096, 8192, 16384, 32768, 65536]
 BOOTSTRAP_PROPERTY_COLUMNS = {
     "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1,
     "typed-required-feature": 2, "mixed-feature-cutoff": 2,
+    "geometry-cutoff": 3, "candidate-feature-cutoff": 3,
 }
 NATIVE_BOOTSTRAP_HASH_FIELDS = {"ledger_sha256", "raw_sha256", "metadata_sha256", "bootstrap_sha256", "fsroot_sha256"}
 NATIVE_BOOTSTRAP_ID_FIELDS = {"os_version", "os_build", "architecture", "oracle_version"}
@@ -47,6 +48,18 @@ FULL_OPEN_DIRECTORY = "crates/container/apfs-container/verification"
 FULL_OPEN_SOURCES = {
     "runner_sha256": f"{FULL_OPEN_DIRECTORY}/check_native_checkpoint_open.py",
     "harness_sha256": f"{FULL_OPEN_DIRECTORY}/native_checkpoint_open.rs",
+}
+CONTAINER_PROPERTY = ("A-V01", "property")
+CONTAINER_PROPERTY_METHOD = "/".join(CONTAINER_PROPERTY)
+CONTAINER_PROPERTY_INVOCATIONS = {
+    "bootstrap-properties": ("property_cases", "container/apfs-container", "check-bootstrap-properties.sh"),
+    "locator-properties": ("locator_cases", "formats/apfs-format", "check-locator-properties.sh"),
+    "geometry-span-properties": ("span_cases", "formats/apfs-format", "check-span-properties.sh"),
+    "native-checksum-window-properties": ("window_cases", "formats/apfs-format", "check-native-windows.sh"),
+    "native-size-matrix-window-properties": (
+        "window_cases", "formats/apfs-format", "check-native-windows.sh", "--size-matrix",
+    ),
+    "complete-object-properties": ("complete_object_cases", "formats/apfs-format", "check-complete-objects.sh"),
 }
 
 
@@ -441,7 +454,43 @@ def verify_native_checkpoint_policy(name, profile):
             f"invalid native ring slots or payload blocks for {label}")
 
 
-def required_matrix(policy, registry, requested_profile):
+def container_property_group(profiles):
+    group = {}
+    for name, (case_key, crate, script, *arguments) in CONTAINER_PROPERTY_INVOCATIONS.items():
+        profile = profiles.get(name)
+        if (profile is None or (profile["obligation"], profile["method"]) != CONTAINER_PROPERTY
+                or case_key not in profile or profile["features"] or profile.get("partial") is not True
+                or profile["command"] != ["bash", f"crates/{crate}/verification/{script}", *arguments]):
+            return {}
+        group[name] = profile
+    bootstrap = group["bootstrap-properties"]
+    if bootstrap["bounds"] != {"size_bits": 32, "geometry_bits": 64, "max_header_prefix_bytes": 64,
+                               "incompatible_feature_bits": 64}:
+        return {}
+    cases = bootstrap["property_cases"]
+    if (cases["geometry"] != [[size, 7, 3, 24] for size in NATIVE_BLOCK_SIZES]
+            or cases["geometry-cutoff"] != [[size, 4, 12] for size in NATIVE_BLOCK_SIZES]
+            or cases["typed-required-feature"] != [[4034, 16136]]
+            or cases["mixed-feature-cutoff"] != [[size, 32] for size in NATIVE_BLOCK_SIZES]
+            or cases["candidate-feature-cutoff"] != [[8, 2, 11]]):
+        return {}
+    locator = group["locator-properties"]
+    if (locator["bounds"]["address_bits"], locator["bounds"]["area_field_bits"]) != (64, 32) \
+            or set(locator["locator_cases"]["scenarios"]) != {
+                "contiguous-boundary", "fragment-locator", "beyond-source", "offset-overflow",
+                "empty-ring", "missing-base", "raw-fields",
+            }:
+        return {}
+    if (locator["bounds"]["cases_per_scenario"] < 64
+            or group["geometry-span-properties"]["bounds"]["cases_per_shape"] < 64
+            or group["complete-object-properties"]["bounds"]["cases_per_block_size"] < 64
+            or group["native-size-matrix-window-properties"]["bounds"].get("block_sizes") != NATIVE_BLOCK_SIZES
+            or len(group["native-checksum-window-properties"]["window_cases"]) != 7):
+        return {}
+    return group
+
+
+def required_matrix(policy, registry, requested_profile, requested_method=None):
     require(isinstance(policy, dict) and set(policy) == {"schema_version", "milestone", "profiles"}
             and type(policy["schema_version"]) is int and policy["schema_version"] == SCHEMA_VERSION,
             "invalid release policy schema")
@@ -486,6 +535,13 @@ def required_matrix(policy, registry, requested_profile):
     if requested_profile is not None:
         require(requested_profile in profiles, "unknown requested profile")
         return {requested_profile: profiles[requested_profile]}
+    property_group = container_property_group(profiles)
+    if requested_method is not None:
+        require(requested_method == CONTAINER_PROPERTY_METHOD and property_group,
+                f"no complete configured profile group for {requested_method}")
+        return property_group
+    if property_group:
+        covered.add(CONTAINER_PROPERTY)
     missing = {(obligation, method) for obligation, methods in active.items() for method in methods} - covered
     if missing:
         unconfigured = ", ".join(f"{obligation}/{method}" for obligation, method in sorted(missing))
@@ -634,7 +690,7 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
         verify_bootstrap_properties(transcript, profile["property_cases"], profile["tool_versions"])
 
 
-def validate(root, bundle, requested_profile):
+def validate(root, bundle, requested_profile, requested_method=None):
     root = root.resolve(strict=True)
     top = Path(git_output(root, "rev-parse", "--show-toplevel").decode().rstrip("\n")).resolve()
     require(top == root, "candidate argument must name the Git worktree root")
@@ -643,7 +699,7 @@ def validate(root, bundle, requested_profile):
     commit = git_output(root, "rev-parse", "HEAD").decode().strip()
     policy = parse_json(git_output(root, "show", f"{commit}:{POLICY_PATH}"))
     registry = parse_json(git_output(root, "show", f"{commit}:{REGISTRY_PATH}"))
-    profiles = required_matrix(policy, registry, requested_profile)
+    profiles = required_matrix(policy, registry, requested_profile, requested_method)
     for profile in profiles.values():
         if "native_full_open" in profile:
             for key, path in FULL_OPEN_SOURCES.items():
@@ -674,15 +730,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="clean candidate checkout")
     parser.add_argument("--bundle", type=Path, required=True, help="schema v1 JSON array")
-    parser.add_argument("--profile", help="check one invocation instead of all release evidence")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--profile", help="check one invocation instead of all release evidence")
+    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD], help="check the complete bounded method group")
     arguments = parser.parse_args()
     try:
-        count, milestone, commit = validate(arguments.root, arguments.bundle, arguments.profile)
+        count, milestone, commit = validate(arguments.root, arguments.bundle, arguments.profile, arguments.method)
     except (KeyError, TypeError, ValueError, OSError) as error:
         print(f"Evidence rejected: {error}", file=sys.stderr)
         return 1
     if arguments.profile:
         print(f"Verified APFS {arguments.profile} invocation at {commit}. Release gate was not evaluated.")
+    elif arguments.method:
+        print(f"Verified APFS {arguments.method} method from {count} records at {commit}. Release gate was not evaluated.")
     else:
         print(f"Verified {count} APFS evidence records for {milestone} at {commit}.")
     return 0

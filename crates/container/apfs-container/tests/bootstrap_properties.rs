@@ -78,6 +78,7 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 			(u64::MAX, u64::MAX),
 		];
 		let (mut admitted, mut ranges) = (0, 0);
+		let (mut rejected, mut refused_invocations) = (0, 0);
 		for (count, device_bytes) in cases {
 			put(&mut block, BLOCK_COUNT, count.to_le_bytes());
 			seal(&mut block);
@@ -85,6 +86,8 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 			let extent = u128::from(count) * u128::from(size);
 			if !(u128::from(MIN_CONTAINER_BYTES)..=u128::from(device_bytes)).contains(&extent) {
 				assert_eq!(result, Err(FormatError::InvalidGeometry));
+				refused_invocations += check_geometry_cutoff(&block, device_bytes);
+				rejected += 1;
 				continue;
 			}
 			let geometry = result.unwrap().geometry;
@@ -129,7 +132,41 @@ fn nxsb_count_and_byte_ranges_match_widened_arithmetic() {
 			"APFS bootstrap property geometry {size} {} {admitted} {ranges}",
 			cases.len()
 		);
+		println!("APFS bootstrap property geometry-cutoff {size} {rejected} {refused_invocations}");
 	}
+}
+
+fn check_geometry_cutoff(block: &[u8], device_bytes: u64) -> usize {
+	let xid = Header::decode(block).unwrap().transaction;
+	let source = BlockZero {
+		block,
+		device_bytes,
+		reads: Cell::new(0),
+	};
+	assert!(matches!(
+		probe_extent(&source),
+		Err(Error::Bootstrap(FormatError::InvalidGeometry))
+	));
+	assert_eq!(source.reads.replace(0), 2);
+
+	let mut refused = 1;
+	for transaction in [None, Some(xid)] {
+		let options = OpenOptions {
+			max_object_bytes: block.len(),
+			..OpenOptions::default()
+		};
+		let result = match transaction {
+			Some(xid) => Container::open_at(&source, options, xid),
+			None => Container::open(&source, options),
+		};
+		assert!(matches!(
+			result,
+			Err(Error::Bootstrap(FormatError::InvalidGeometry))
+		));
+		assert_eq!(source.reads.replace(0), 2);
+		refused += 1;
+	}
+	refused
 }
 
 #[test]

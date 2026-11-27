@@ -9,7 +9,10 @@ import tempfile
 import unittest
 from uuid import UUID
 
-from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate, verify_native_geometry_policy, verify_native_window_policy
+from check_release_evidence import (
+    EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, required_matrix, validate,
+    verify_native_geometry_policy, verify_native_window_policy,
+)
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
     verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_full_open,
@@ -67,6 +70,8 @@ APFS bootstrap property checksum-window 65 9
 APFS bootstrap property required-feature 63
 APFS bootstrap property typed-required-feature 4034 16136
 APFS bootstrap property mixed-feature-cutoff 4096 32
+APFS bootstrap property geometry-cutoff 4096 4 12
+APFS bootstrap property candidate-feature-cutoff 8 2 11
 APFS bootstrap properties completed
 """
 NATIVE_PROFILE = "bootstrap-native"
@@ -193,7 +198,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                        "incompatible_feature_bits": 64},
             "property_cases": {"size-prefix": [[5, 7]], "geometry": [[4096, 7, 3, 24]],
                                "checksum-window": [[65, 9]], "required-feature": [[63]],
-                               "typed-required-feature": [[4034, 16136]], "mixed-feature-cutoff": [[4096, 32]]},
+                               "typed-required-feature": [[4034, 16136]], "mixed-feature-cutoff": [[4096, 32]],
+                               "geometry-cutoff": [[4096, 4, 12]], "candidate-feature-cutoff": [[8, 2, 11]]},
         }
         self.policy["profiles"][BOOTSTRAP_PROFILE] = profile
         self.registry["methods"]["property"] = "property test"
@@ -455,6 +461,34 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
         with self.assertRaisesRegex(EvidenceError, "release policy omits A-V01/property"):
             self.check([self.record])
 
+    def test_container_property_method_requires_all_scoped_profiles(self):
+        repository = Path(__file__).resolve().parents[1]
+        policy = json.loads((repository / POLICY_PATH).read_text())
+        registry = json.loads((repository / REGISTRY_PATH).read_text())
+        method = "A-V01/property"
+        profiles = required_matrix(policy, registry, None, method)
+        self.assertEqual(set(profiles), {
+            "bootstrap-properties", "locator-properties", "geometry-span-properties",
+            "native-checksum-window-properties", "native-size-matrix-window-properties",
+            "complete-object-properties",
+        })
+        with self.assertRaises(EvidenceError) as full_release:
+            required_matrix(policy, registry, None)
+        self.assertNotIn(method, str(full_release.exception))
+        self.assertIn("A-V02/property", str(full_release.exception))
+
+        omitted = deepcopy(policy)
+        del omitted["profiles"]["geometry-span-properties"]
+        renamed_command = deepcopy(policy)
+        renamed_command["profiles"]["locator-properties"]["command"][-1] = "unrelated.sh"
+        shortened = deepcopy(policy)
+        shortened["profiles"]["geometry-span-properties"]["bounds"]["cases_per_shape"] = 1
+        cutoff = deepcopy(policy)
+        cutoff["profiles"]["bootstrap-properties"]["property_cases"]["candidate-feature-cutoff"] = [[8, 1, 11]]
+        for incomplete in (omitted, renamed_command, shortened, cutoff):
+            with self.subTest(incomplete=incomplete), self.assertRaisesRegex(EvidenceError, "no complete configured"):
+                required_matrix(incomplete, registry, None, method)
+
     def test_bootstrap_properties_require_the_boundary_matrix(self):
         self.set_bootstrap_profile()
         line = "APFS bootstrap property required-feature 63"
@@ -462,6 +496,8 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
                  ("checksum-window 65 9", "checksum-window 65 8", "bootstrap property scenarios"),
                  ("typed-required-feature 4034 16136", "typed-required-feature 4033 16132", "bootstrap property scenarios"),
                  ("mixed-feature-cutoff 4096 32", "mixed-feature-cutoff 4096 31", "bootstrap property scenarios"),
+                 ("geometry-cutoff 4096 4 12", "geometry-cutoff 4096 4 11", "bootstrap property scenarios"),
+                 ("candidate-feature-cutoff 8 2 11", "", "bootstrap property scenarios"),
                  (line, "", "bootstrap property scenarios"),
                  (line, f"{line}\n{line}", "bootstrap property scenarios"),
                  ("properties completed", "properties interrupted", "did not complete"),

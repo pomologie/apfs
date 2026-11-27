@@ -97,7 +97,9 @@
         "checksum-window": [[65, 9]],
         "required-feature": [[63]],
         "typed-required-feature": [[4034, 16136]],
-        "mixed-feature-cutoff": [[4096, 32], [8192, 32], [16384, 32], [32768, 32], [65536, 32]]
+        "mixed-feature-cutoff": [[4096, 32], [8192, 32], [16384, 32], [32768, 32], [65536, 32]],
+        "geometry-cutoff": [[4096, 4, 12], [8192, 4, 12], [16384, 4, 12], [32768, 4, 12], [65536, 4, 12]],
+        "candidate-feature-cutoff": [[8, 2, 11]]
       }
     },
     "locator-properties": {

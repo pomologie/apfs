@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+
 use apfs_container::{Container, Corruption, Diagnostic, Error, Limit, OpenOptions, Unsupported};
+use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{
 	object::{Header, ObjectId},
-	superblock::BlockAddress,
+	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress},
 };
 use fixture::*;
 
@@ -55,18 +58,78 @@ fn checksum_failure_falls_back_with_verified_transaction() {
 
 #[test]
 fn unsupported_latest_is_not_treated_as_rollback() {
+	const VERSION_TWO_WITH_FUSION: u64 = 0x102;
+	const FIRST_DESCRIPTOR_BLOCK: u64 = 1;
+	const DESCRIPTOR_SLOTS: u64 = LAST_DESCRIPTOR_BLOCK - FIRST_DESCRIPTOR_BLOCK + 1;
+
 	let mut fixture = Fixture::native();
-	let fusion = 0x102;
-	fixture.set_u64(LATEST_NXSB, INCOMPATIBLE_OFFSET, fusion);
-	assert!(
-		matches!(Container::open(fixture, OpenOptions::default()), Err(Error::Unsupported { transaction: LATEST_XID, reason: Unsupported::IncompatibleFeatures(flags), .. }) if flags == fusion)
+	fixture.set_u64(LATEST_NXSB, INCOMPATIBLE_OFFSET, VERSION_TWO_WITH_FUSION);
+	let source = CheckpointReadTrace {
+		fixture,
+		reads: RefCell::default(),
+	};
+	// Descriptor enumeration legitimately reads every ring slot, including map
+	// objects. After that scan, the selected unsupported NXSB is the final read.
+	let expected: Vec<_> = [
+		(ByteOffset(BOOTSTRAP), BLOCK_SIZE_PREFIX_BYTES),
+		full_read(BOOTSTRAP),
+	]
+	.into_iter()
+	.chain((FIRST_DESCRIPTOR_BLOCK..=LAST_DESCRIPTOR_BLOCK).map(full_read))
+	.chain([full_read(LATEST_NXSB)])
+	.collect();
+	let mut opens = 0;
+	for transaction in [None, Some(LATEST_XID)] {
+		let options = OpenOptions::default();
+		let result = match transaction {
+			Some(xid) => Container::open_at(&source, options, xid),
+			None => Container::open(&source, options),
+		};
+		assert!(matches!(
+			result,
+			Err(Error::Unsupported {
+				descriptor: BlockAddress(LATEST_NXSB),
+				transaction: LATEST_XID,
+				reason: Unsupported::IncompatibleFeatures(VERSION_TWO_WITH_FUSION),
+			})
+		));
+		assert_eq!(*source.reads.borrow(), expected);
+		source.reads.borrow_mut().clear();
+		opens += 1;
+	}
+	println!(
+		"\nAPFS bootstrap property candidate-feature-cutoff {DESCRIPTOR_SLOTS} {opens} {}",
+		expected.len()
 	);
+
 	let mut fixture = Fixture::native();
 	let unknown_flags = 0x81;
 	fixture.set_u32(LATEST_MAP, MAP_FLAGS_OFFSET, unknown_flags);
 	assert!(
 		matches!(Container::open(fixture, OpenOptions::default()), Err(Error::Unsupported { transaction: LATEST_XID, reason: Unsupported::CheckpointMapFlags(flags), .. }) if flags == unknown_flags)
 	);
+}
+
+fn full_read(block: u64) -> (ByteOffset, usize) {
+	(ByteOffset(block * BLOCK_BYTES as u64), BLOCK_BYTES)
+}
+
+struct CheckpointReadTrace {
+	fixture: Fixture,
+	reads: RefCell<Vec<(ByteOffset, usize)>>,
+}
+
+impl ReadAt for CheckpointReadTrace {
+	type Error = <Fixture as ReadAt>::Error;
+
+	fn len(&self) -> u64 {
+		self.fixture.len()
+	}
+
+	fn read_exact_at(&self, offset: ByteOffset, out: &mut [u8]) -> Result<(), Self::Error> {
+		self.reads.borrow_mut().push((offset, out.len()));
+		self.fixture.read_exact_at(offset, out)
+	}
 }
 
 #[test]

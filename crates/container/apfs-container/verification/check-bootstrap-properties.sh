@@ -11,4 +11,7 @@ cargo test --locked --manifest-path "$verification_dir/../Cargo.toml" \
 cargo test --locked --manifest-path "$verification_dir/../Cargo.toml" \
 	--no-default-features --lib checkpoint::tests::required_feature_sets_match_typed_admission \
 	-- --exact --nocapture --test-threads=1
+cargo test --locked --manifest-path "$verification_dir/../Cargo.toml" \
+	--no-default-features --test checkpoints unsupported_latest_is_not_treated_as_rollback \
+	-- --exact --nocapture --test-threads=1
 printf 'APFS bootstrap properties completed\n'
