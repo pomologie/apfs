@@ -35,6 +35,7 @@ TLC_BOUND_FIELDS = {"candidate_xids", "ring_slots", "workers", "seed", "fingerpr
 CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
+NATIVE_GEOMETRY_MATRIX_SIZES = [4096, 8192, 16384, 32768, 65536]
 BOOTSTRAP_PROPERTY_COLUMNS = {
     "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1,
     "typed-required-feature": 2, "mixed-feature-cutoff": 2,
@@ -203,8 +204,14 @@ def verify_native_geometry_policy(name, profile):
     require(set(profile) == PROFILE_FIELDS | {"geometry_cases", "partial"} and profile["partial"] is True
             and "rustc" in profile["tool_versions"], f"invalid native geometry policy for {name}")
     bounds = profile["bounds"]
-    require(set(bounds) == {"block_bytes", "source_bytes"} and all(positive_integer(value) for value in bounds.values())
-            and bounds["source_bytes"] % bounds["block_bytes"] == 0, f"invalid native geometry bounds for {name}")
+    matrix = "block_sizes" in bounds
+    if matrix:
+        require(bounds == {"block_sizes": NATIVE_GEOMETRY_MATRIX_SIZES, "source_bytes": 128 << 20},
+                f"invalid native geometry matrix bounds for {name}")
+    else:
+        require(set(bounds) == {"block_bytes", "source_bytes"}
+                and all(positive_integer(value) for value in bounds.values())
+                and bounds["source_bytes"] % bounds["block_bytes"] == 0, f"invalid native geometry bounds for {name}")
     cases = profile["geometry_cases"]
     require(isinstance(cases, dict) and set(cases) == {"ledger_sha256", "rows_sha256", "rows"},
             f"invalid native geometry case matrix for {name}")
@@ -212,7 +219,14 @@ def verify_native_geometry_policy(name, profile):
                 for key in ("ledger_sha256", "rows_sha256")), f"invalid native geometry digests for {name}")
     rows = cases["rows"]
     require(isinstance(rows, dict) and set(rows) == set(NATIVE_GEOMETRY_GROUPS)
-            and all(positive_integer(count) for count in rows.values()), f"incomplete native geometry rows for {name}")
+            and all(type(count) is int for count in rows.values()), f"invalid native geometry rows for {name}")
+    if matrix:
+        size_count = len(NATIVE_GEOMETRY_MATRIX_SIZES)
+        require(rows == {"nxsb": size_count, "area": 2 * size_count, "map": 0, "mapping": 0,
+                         "header": size_count, "profile": size_count},
+                f"incomplete native geometry matrix rows for {name}")
+    else:
+        require(all(positive_integer(count) for count in rows.values()), f"incomplete native geometry rows for {name}")
 
 
 def verify_checksum_policy(name, cases, bounds):

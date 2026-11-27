@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from uuid import UUID
 
-from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
+from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate, verify_native_geometry_policy
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
     verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_full_open,
@@ -686,6 +686,21 @@ class FormatFuzzTranscriptTests(unittest.TestCase):
 
 
 class NativeGeometryTranscriptTests(unittest.TestCase):
+    def test_requires_all_five_native_matrix_sizes_and_exact_row_groups(self):
+        name = "format-native-size-matrix-differential"
+        root = Path(__file__).resolve().parents[1]
+        profile = json.loads((root / POLICY_PATH).read_text(encoding="utf-8"))["profiles"][name]
+        verify_native_geometry_policy(name, profile)
+        for field, value in (("block_sizes", [4096, 8192]), ("source_bytes", 64 << 20)):
+            changed = profile | {"bounds": profile["bounds"] | {field: value}}
+            with self.subTest(field=field), self.assertRaisesRegex(EvidenceError, "matrix bounds"):
+                verify_native_geometry_policy(name, changed)
+        for field, count in (("nxsb", 4), ("area", 9), ("map", 1), ("profile", True)):
+            cases = profile["geometry_cases"]
+            changed = profile | {"geometry_cases": cases | {"rows": cases["rows"] | {field: count}}}
+            with self.subTest(field=field), self.assertRaisesRegex(EvidenceError, "geometry.*rows"):
+                verify_native_geometry_policy(name, changed)
+
     def test_requires_actual_geometry_rows_matching_the_comparison_digest(self):
         rows = [
             "APFS native geometry nxsb 0 2 4096 16384 67108864 199 2",

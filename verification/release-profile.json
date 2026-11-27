@@ -60,6 +60,20 @@
         "rows": {"nxsb": 3, "area": 6, "map": 2, "mapping": 6, "header": 5, "profile": 3}
       }
     },
+    "format-native-size-matrix-differential": {
+      "obligation": "A-V01",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/check-native-geometry.sh", "--size-matrix"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"block_sizes": [4096, 8192, 16384, 32768, 65536], "source_bytes": 134217728},
+      "geometry_cases": {
+        "ledger_sha256": "def2d79906983fefa75ba843d7796bf1614b7aa05b8205bc9a7c9463946e5cba",
+        "rows_sha256": "da2bb80eff40e39297d382ff2bc76560a7f005dd410134d3e444d3dc1f4fc6e5",
+        "rows": {"nxsb": 5, "area": 10, "map": 0, "mapping": 0, "header": 5, "profile": 5}
+      }
+    },
     "format-request-fuzz": {
       "obligation": "A-V01",
       "method": "fuzz",
