@@ -9,6 +9,9 @@ use apfs_format::{
 use super::{Candidate, Discovery, check_profile};
 use crate::{Corruption, Error, Limit, Unsupported, alloc::vec::Vec};
 
+#[cfg(test)]
+mod tests;
+
 const FIRST_CHECKPOINT_XID: TransactionId = TransactionId(1);
 const MIN_DESCRIPTOR_LENGTH: u32 = 2; // At least one map and the final NXSB.
 const EPHEMERAL: u32 = 0x8000_0000;
