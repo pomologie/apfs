@@ -1,14 +1,207 @@
+use core::{cell::RefCell, cmp::Ordering};
+
+use apfs_core::{ByteOffset, ReadAt};
+
 use super::{
-	AreaLocation, BlockAddress, Corruption, Map, Mapping, Rings, Superblock, Vec, same_layout,
-	valid_live_ring, validate_mappings,
+	AreaLocation, BlockAddress, Candidate, Corruption, Discovery, Error, Header, Map, Mapping,
+	Rings, Superblock, Vec, same_layout, valid_live_ring, validate_mappings,
 };
+use crate::probe::Probe;
 
 const DEVICE_BYTES: u64 = 64 << 20;
+const LARGER_DEVICE_BYTES: u64 = 128 << 20;
+const BLOCK_BYTES: usize = 4096;
 const BOOTSTRAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-0.bin");
+const LARGER_BOOTSTRAP: &[u8] = include_bytes!("../../../tests/fixtures/sonoma-128m-bootstrap.bin");
 const EARLY: &[u8] = include_bytes!("../../../tests/fixtures/native-block-2.bin");
 const LATEST: &[u8] = include_bytes!("../../../tests/fixtures/native-block-4.bin");
 const LATEST_MAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-3.bin");
 const EARLY_MAP: &[u8] = include_bytes!("../../../tests/fixtures/native-block-1.bin");
+const EARLY_DESCRIPTOR: BlockAddress = BlockAddress(2);
+const LATEST_DESCRIPTOR: BlockAddress = BlockAddress(4);
+const EARLY_OBJECT_MAP: BlockAddress = BlockAddress(191);
+const LATEST_OBJECT_MAP: BlockAddress = BlockAddress(199);
+
+macro_rules! native_block {
+	($address:literal) => {
+		(
+			BlockAddress($address),
+			include_bytes!(concat!(
+				"../../../tests/fixtures/native-block-",
+				stringify!($address),
+				".bin"
+			)),
+		)
+	};
+}
+
+const NATIVE_BLOCKS: &[(BlockAddress, &[u8; BLOCK_BYTES])] = &[
+	native_block!(4),
+	native_block!(9),
+	native_block!(10),
+	native_block!(11),
+	native_block!(12),
+	native_block!(13),
+	native_block!(14),
+	native_block!(191),
+	native_block!(199),
+];
+
+#[test]
+fn candidate_with_different_geometry_stops_after_its_descriptor() {
+	let mut bootstrap = Superblock::decode(BOOTSTRAP, DEVICE_BYTES).unwrap();
+	bootstrap.geometry = Superblock::decode(LARGER_BOOTSTRAP, LARGER_DEVICE_BYTES)
+		.unwrap()
+		.geometry;
+	let checkpoint = Superblock::decode(LATEST, LARGER_DEVICE_BYTES).unwrap();
+	assert_eq!(
+		checkpoint.geometry.block_bytes(),
+		bootstrap.geometry.block_bytes()
+	);
+	assert_ne!(
+		checkpoint.geometry.block_count(),
+		bootstrap.geometry.block_count()
+	);
+	let source = NativeBlocks::new(LARGER_DEVICE_BYTES);
+	let rings = Rings::from_bootstrap(&bootstrap).unwrap();
+	let candidate = Candidate {
+		address: LATEST_DESCRIPTOR,
+		xid: checkpoint.object.transaction,
+	};
+
+	let result = source
+		.discovery(1)
+		.read_candidate(&bootstrap, &rings, candidate, &mut Vec::new());
+	assert!(matches!(
+		result,
+		Err(Error::CandidateCorruption(damage))
+			if damage.descriptor == candidate.address
+				&& damage.transaction == Some(candidate.xid)
+				&& damage.reason == Corruption::Identity
+	));
+	assert_eq!(*source.reads.borrow(), [LATEST_DESCRIPTOR]);
+}
+
+#[test]
+fn physical_checkpoint_object_map_can_be_reused_but_must_not_be_newer() {
+	let early = Superblock::decode(EARLY, DEVICE_BYTES).unwrap();
+	let mut early_mappings: Vec<_> = Map::decode(EARLY_MAP, early.geometry)
+		.unwrap()
+		.mappings()
+		.collect();
+	early_mappings.sort_unstable_by_key(|mapping| mapping.physical);
+	let (latest, _, latest_mappings) = native_mappings();
+	let cases = [
+		(
+			&latest,
+			LATEST_DESCRIPTOR,
+			latest_mappings.as_slice(),
+			EARLY_OBJECT_MAP,
+			Ordering::Less,
+		),
+		(
+			&latest,
+			LATEST_DESCRIPTOR,
+			latest_mappings.as_slice(),
+			LATEST_OBJECT_MAP,
+			Ordering::Equal,
+		),
+		(
+			&early,
+			EARLY_DESCRIPTOR,
+			early_mappings.as_slice(),
+			LATEST_OBJECT_MAP,
+			Ordering::Greater,
+		),
+	];
+
+	for (descriptor, address, mappings, object_map, age) in cases {
+		let mut checkpoint = descriptor.clone();
+		checkpoint.object_map = object_map;
+		let candidate = Candidate {
+			address,
+			xid: checkpoint.object.transaction,
+		};
+		assert_eq!(
+			Header::decode(NativeBlocks::block(object_map).unwrap())
+				.unwrap()
+				.transaction
+				.cmp(&candidate.xid),
+			age
+		);
+		let source = NativeBlocks::new(DEVICE_BYTES);
+		let rings = Rings::from_bootstrap(&checkpoint).unwrap();
+		let result = source.discovery(mappings.len() + 1).validate_payloads(
+			mappings,
+			&checkpoint,
+			&rings,
+			candidate,
+			&mut Vec::new(),
+		);
+		if age == Ordering::Greater {
+			assert!(matches!(
+				result,
+				Err(Error::CandidateCorruption(damage))
+					if damage.descriptor == candidate.address
+						&& damage.transaction == Some(candidate.xid)
+						&& damage.reason == Corruption::Object
+			));
+		} else {
+			result.unwrap();
+		}
+		let expected_reads = mappings
+			.iter()
+			.map(|mapping| mapping.physical)
+			.chain([object_map]);
+		assert!(source.reads.borrow().iter().copied().eq(expected_reads));
+	}
+}
+
+struct NativeBlocks {
+	len: u64,
+	reads: RefCell<Vec<BlockAddress>>,
+}
+
+impl NativeBlocks {
+	fn new(len: u64) -> Self {
+		Self {
+			len,
+			reads: RefCell::new(Vec::new()),
+		}
+	}
+
+	fn block(address: BlockAddress) -> Option<&'static [u8; BLOCK_BYTES]> {
+		NATIVE_BLOCKS
+			.iter()
+			.find_map(|&(block, bytes)| (block == address).then_some(bytes))
+	}
+
+	fn discovery(&self, block_budget: usize) -> Discovery<'_, Self> {
+		Discovery {
+			probe: Probe::new(self, BLOCK_BYTES, (block_budget * BLOCK_BYTES) as u64),
+			max_mappings: NATIVE_BLOCKS.len(),
+		}
+	}
+}
+
+impl ReadAt for NativeBlocks {
+	type Error = ByteOffset;
+
+	fn len(&self) -> u64 {
+		self.len
+	}
+
+	fn read_exact_at(&self, offset: ByteOffset, out: &mut [u8]) -> Result<(), Self::Error> {
+		if !offset.0.is_multiple_of(BLOCK_BYTES as u64) || out.len() != BLOCK_BYTES {
+			return Err(offset);
+		}
+		let address = BlockAddress(offset.0 / BLOCK_BYTES as u64);
+		self.reads.borrow_mut().push(address);
+		let bytes = Self::block(address).ok_or(offset)?;
+		out.copy_from_slice(bytes);
+		Ok(())
+	}
+}
 
 #[test]
 fn layout_identity_accepts_cursor_changes_and_rejects_different_ring_identity() {
