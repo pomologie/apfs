@@ -71,19 +71,7 @@ impl<S: ReadAt> Discovery<'_, S> {
 		if !same_layout(bootstrap, &checkpoint) {
 			return Err(reject(Corruption::Identity));
 		}
-		if checkpoint.descriptors.length < MIN_DESCRIPTOR_LENGTH
-			|| !valid_live_ring(checkpoint.descriptors)
-			|| !valid_live_ring(checkpoint.data)
-			|| descriptor_address(
-				checkpoint.descriptors,
-				rings,
-				checkpoint.descriptors.length - 1,
-			)
-			.map_err(reject)?
-				!= candidate.address
-		{
-			return Err(reject(Corruption::Ring));
-		}
+		validate_candidate_rings(&checkpoint, rings, candidate.address).map_err(reject)?;
 		let mut mappings = self.read_maps(&checkpoint, rings, candidate, scratch)?;
 		validate_mappings(&mut mappings, &checkpoint, rings).map_err(reject)?;
 		self.validate_payloads(&mappings, &checkpoint, rings, candidate, scratch)?;
@@ -215,6 +203,22 @@ fn valid_live_ring(area: Area) -> bool {
 	area.ring_index(0).is_ok()
 		&& (u64::from(area.index) + u64::from(area.length)) % u64::from(area.blocks)
 			== u64::from(area.next)
+}
+
+fn validate_candidate_rings(
+	checkpoint: &Superblock,
+	rings: &Rings,
+	address: BlockAddress,
+) -> Result<(), Corruption> {
+	let descriptors = checkpoint.descriptors;
+	if descriptors.length < MIN_DESCRIPTOR_LENGTH
+		|| !valid_live_ring(descriptors)
+		|| !valid_live_ring(checkpoint.data)
+		|| descriptor_address(descriptors, rings, descriptors.length - 1)? != address
+	{
+		return Err(Corruption::Ring);
+	}
+	Ok(())
 }
 
 fn descriptor_address(area: Area, rings: &Rings, ordinal: u32) -> Result<BlockAddress, Corruption> {

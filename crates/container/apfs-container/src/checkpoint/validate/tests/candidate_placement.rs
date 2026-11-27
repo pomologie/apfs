@@ -1,3 +1,4 @@
+use super::super::validate_candidate_rings;
 use super::{
 	AreaLocation, BLOCK_BYTES, BOOTSTRAP, BlockAddress, ByteOffset, Candidate, Corruption,
 	DEVICE_BYTES, Discovery, EARLY, Error, LATEST, LATEST_DESCRIPTOR, LATEST_MAP, Map, Probe,
@@ -8,6 +9,53 @@ use crate::OpenOptions;
 const LATEST_MAP_ADDRESS: BlockAddress = BlockAddress(3);
 const FOLLOWING_MAP_ADDRESS: BlockAddress = BlockAddress(LATEST_MAP_ADDRESS.0 + 1);
 const FOLLOWING_DESCRIPTOR: BlockAddress = BlockAddress(LATEST_DESCRIPTOR.0 + 1);
+
+#[test]
+fn candidate_ring_requires_a_map_consistent_cursors_and_the_terminal_address() {
+	let native = Superblock::decode(LATEST, DEVICE_BYTES).unwrap();
+	let rings = Rings::from_bootstrap(&native).unwrap();
+	assert_eq!(
+		validate_candidate_rings(&native, &rings, LATEST_DESCRIPTOR),
+		Ok(())
+	);
+
+	let mut wrapped = native.clone();
+	for area in [&mut wrapped.descriptors, &mut wrapped.data] {
+		area.index = area.blocks - 1;
+		area.next = area.length - 1;
+	}
+	assert_eq!(
+		validate_candidate_rings(&wrapped, &rings, rings.descriptor),
+		Ok(())
+	);
+
+	const NXSB_ONLY_LENGTH: u32 = 1;
+	let mut nxsb_only = native.clone();
+	nxsb_only.descriptors.length = NXSB_ONLY_LENGTH;
+	nxsb_only.descriptors.next =
+		(nxsb_only.descriptors.index + NXSB_ONLY_LENGTH) % nxsb_only.descriptors.blocks;
+	let nxsb_only_address =
+		BlockAddress(rings.descriptor.0 + u64::from(nxsb_only.descriptors.index));
+
+	assert_ne!(native.descriptors.next, native.descriptors.index);
+	let mut wrong_descriptor_cursor = native.clone();
+	wrong_descriptor_cursor.descriptors.next = native.descriptors.index;
+	assert_ne!(native.data.next, native.data.index);
+	let mut wrong_data_cursor = native.clone();
+	wrong_data_cursor.data.next = native.data.index;
+
+	for (checkpoint, address) in [
+		(&nxsb_only, nxsb_only_address),
+		(&wrong_descriptor_cursor, LATEST_DESCRIPTOR),
+		(&wrong_data_cursor, LATEST_DESCRIPTOR),
+		(&native, FOLLOWING_DESCRIPTOR),
+	] {
+		assert_eq!(
+			validate_candidate_rings(checkpoint, &rings, address),
+			Err(Corruption::Ring)
+		);
+	}
+}
 
 #[test]
 fn candidate_transaction_and_terminal_slot_are_checked_before_map_reads() {
