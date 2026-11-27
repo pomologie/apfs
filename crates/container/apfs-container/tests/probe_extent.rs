@@ -8,6 +8,9 @@ use apfs_format::{
 	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Superblock},
 };
 
+#[path = "probe_extent/native_block_sizes.rs"]
+mod native_block_sizes;
+
 const BLOCK_BYTES: usize = 4096;
 const CONTAINER_BYTES: u64 = 64 << 20;
 const TRAILING_BYTES: u64 = 1024;
@@ -87,17 +90,33 @@ fn probes_a_second_apple_geometry_from_its_native_block_zero() {
 	assert_eq!(superblock.geometry.block_bytes() as usize, BLOCK_BYTES);
 	assert_eq!(superblock.geometry.block_count(), NATIVE_BLOCKS);
 
+	println!();
+	println!(
+		"APFS native extent geometry {} {} {} {} {:016x}",
+		superblock.geometry.block_bytes(),
+		superblock.geometry.block_count(),
+		superblock.object.id.0,
+		superblock.object.transaction.0,
+		superblock.object.checksum,
+	);
 	for length in [NATIVE_BYTES, NATIVE_BYTES + TRAILING_BYTES] {
 		let source = Source {
 			block: NATIVE_BLOCK,
 			length,
 			reads: RefCell::default(),
 		};
-		assert_eq!(
-			probe_extent(&source).unwrap(),
-			NonZeroU64::new(NATIVE_BYTES)
+		let extent = probe_extent(&source).unwrap();
+		assert_eq!(extent, NonZeroU64::new(NATIVE_BYTES));
+		let reads = source.reads.borrow();
+		assert_eq!(*reads, BOOTSTRAP_READS);
+		let (prefix_offset, prefix_bytes) = reads[0];
+		let (block_offset, block_bytes) = reads[1];
+		println!(
+			"APFS native extent probe {length} {} {} {prefix_bytes} {} {block_bytes}",
+			extent.unwrap().get(),
+			prefix_offset.0,
+			block_offset.0,
 		);
-		assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
 	}
 }
 

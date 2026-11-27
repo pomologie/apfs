@@ -11,7 +11,7 @@ import unittest
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
-    verify_locator_properties, verify_native_checkpoints,
+    verify_locator_properties, verify_native_checkpoints, verify_native_extent,
     verify_complete_objects, verify_format_fuzz, verify_native_geometry,
     verify_native_windows,
     verify_span_properties,
@@ -221,6 +221,28 @@ class ReleaseEvidenceTests(unittest.TestCase):
                            fixture_hash=NATIVE_FIXTURE["ledger_sha256"])
         del self.record["proof"]
         self.set_transcript(NATIVE_TRANSCRIPT)
+
+    def test_native_extent_requires_both_source_lengths_and_exact_reads(self):
+        fixture = {key: value for key, value in NATIVE_FIXTURE.items()
+                   if key not in {"metadata_sha256", "fsroot_sha256"}}
+        fixture.update(oid=1, checkpoint_xid=2)
+        bounds = {"block_bytes": 4096, "block_count": 32768, "prefix_bytes": 40, "trailing_bytes": 1024}
+        versions = {"rustc": "1.99.1"}
+        padded = "APFS native extent probe 134218752 134217728 0 40 0 4096\n"
+        transcript = f"""rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS native extent ledger {fixture['ledger_sha256']}
+APFS native extent fixture {fixture['bootstrap_sha256']} {fixture['raw_sha256']}
+APFS native extent oracle 14.7.2 23H311 arm64 2236.141.1 0 2
+APFS native extent geometry 4096 32768 1 2 {fixture['wire_checksum']}
+APFS native extent probe 134217728 134217728 0 40 0 4096
+{padded}APFS native extent replay completed
+"""
+        verify_native_extent(transcript, fixture, bounds, versions)
+        for old, replacement in ((padded, ""), ("0 40 0 4096", "0 40 4096 4096"),
+                                 ("32768", "16384"), ("2236.141.1 0 2", "2236.141.1 1 2"),
+                                 (fixture["bootstrap_sha256"], "f" * 64)):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, "probe facts"):
+                verify_native_extent(transcript.replace(old, replacement), fixture, bounds, versions)
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))

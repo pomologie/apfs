@@ -32,6 +32,8 @@ BOOTSTRAP_PROPERTY_PREFIX = "APFS bootstrap property "
 BOOTSTRAP_PROPERTY_SUCCESS = "APFS bootstrap properties completed"
 NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
+NATIVE_EXTENT_PREFIX = "APFS native extent "
+NATIVE_EXTENT_SUCCESS = "APFS native extent replay completed"
 NATIVE_CHECKPOINT_PREFIX = "APFS native checkpoints "
 NATIVE_CHECKPOINT_SUCCESS = "APFS native checkpoints replay completed"
 CHECKPOINT_DIFFERENTIAL_PREFIX = "APFS checkpoint differential matched "
@@ -303,6 +305,28 @@ def verify_native_bootstrap(transcript, fixture, bounds, versions):
     actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_BOOTSTRAP_PREFIX))
     require(actual == Counter(f"{NATIVE_BOOTSTRAP_PREFIX}{row}" for row in expected),
             "native bootstrap ledger, fixture, or replay facts disagree with the policy")
+
+
+def verify_native_extent(transcript, fixture, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native extent transcript has the wrong Rust version")
+    require(lines[-1:] == [NATIVE_EXTENT_SUCCESS] and lines.count(NATIVE_EXTENT_SUCCESS) == 1,
+            "native extent replay did not complete")
+    size, count = bounds["block_bytes"], bounds["block_count"]
+    extent = size * count
+    expected = [
+        f"ledger {fixture['ledger_sha256']}",
+        f"fixture {fixture['bootstrap_sha256']} {fixture['raw_sha256']}",
+        f"oracle {fixture['os_version']} {fixture['os_build']} {fixture['architecture']} "
+        f"{fixture['oracle_version']} 0 {fixture['checkpoint_xid']}",
+        f"geometry {size} {count} {fixture['oid']} {fixture['checkpoint_xid']} {fixture['wire_checksum']}",
+        *(f"probe {length} {extent} 0 {bounds['prefix_bytes']} 0 {size}"
+          for length in (extent, extent + bounds["trailing_bytes"])),
+    ]
+    actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_EXTENT_PREFIX))
+    require(actual == Counter(f"{NATIVE_EXTENT_PREFIX}{row}" for row in expected),
+            "native extent ledger, fixture, or probe facts disagree with the policy")
 
 
 def checkpoint_replay_facts(name, snapshot, slots):

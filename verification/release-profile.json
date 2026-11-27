@@ -168,6 +168,27 @@
         "fsroot_sha256": "080baefd59d8c407c3b7987f4565b3d10dc365378e9b9efe4a0dfd156befe04b"
       }
     },
+    "bootstrap-native-128m": {
+      "obligation": "A-V01",
+      "method": "native",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-native-extent.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"block_bytes": 4096, "block_count": 32768, "prefix_bytes": 40, "trailing_bytes": 1024},
+      "native_extent": {
+        "os_version": "14.7.2",
+        "os_build": "23H311",
+        "architecture": "arm64",
+        "oracle_version": "2236.141.1",
+        "checkpoint_xid": 2,
+        "oid": 1,
+        "wire_checksum": "a5b5616fe64c89d5",
+        "ledger_sha256": "14cccae282edbd9d3dea4d8b8c0a4f8434ff5ee7812a1c7c7a0adc731164822a",
+        "raw_sha256": "52cfb82d9504c83dfaf32d3c05f5ce02ddfe949e6714a205fe4667952ae96f72",
+        "bootstrap_sha256": "11dd5ddbf73b8ce8fcf8dca4bdccaac74909c1339a71301835de0b4fc97ee380"
+      }
+    },
     "checkpoint-native-replay": {
       "obligation": "A-V02",
       "method": "native",
