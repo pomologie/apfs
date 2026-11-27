@@ -31,13 +31,15 @@ The clean `dd371c9` replay passed all 227 tests. Independent inventories compare
 
 The clean `429ae13` replay passed 233 tests. The native geometry matrix was the sole skipped test. Its separate release profile runs the matrix explicitly. The checkpoint map tests checked volume-scoped mappings, the last admitted physical block, and typed errors for inconsistent headers, flags, identities, sizes, and ranges. Checkpoint record format coverage rose to 56 of 57 lines and 16 of 16 branch outcomes. The report is in `target/verification-evidence/v0.1.0/429ae13-critical-coverage/` with SHA-256 `00fc0c2861757fa60773c0a322253c3d8db35bd318f9e970cabcb0c24aeb70cd`.
 
+The clean `be236d8` replay passed 237 tests with two opt-in matrix tests skipped. The typed payload tests checked identity mismatches and object-map pointers into reserved regions with exact read counts. Checkpoint validation reached 212 of 236 lines and 69 of 92 branch outcomes. The report is in `target/verification-evidence/v0.1.0/be236d8-critical-coverage/` with SHA-256 `22a54e09e41d4a6cb86e873ac4d018aa755b99b31fd7f8c9386ce044ae530d37`.
+
 | Critical source | Lines | Branch outcomes |
 |---|---:|---:|
 | Object header and checksum | 36 / 36 | 6 / 6 |
 | Superblock format | 153 / 154 | 33 / 36 |
 | Checkpoint record format | 56 / 57 | 16 / 16 |
 | Container checkpoint loading | 140 / 140 | 20 / 20 |
-| Checkpoint validation | 211 / 236 | 63 / 92 |
+| Checkpoint validation | 212 / 236 | 69 / 92 |
 | Container extent probe | 94 / 98 | 9 / 10 |
 | Checkpoint selection | 37 / 37 | 0 / 0 |
 
@@ -53,7 +55,7 @@ Checkpoint validation remains below both proposed critical-file thresholds. LLVM
 **Requirement links:** A-CONT-01.\
 **Evidence:** kani, property, fuzz, differential, native; status planned.
 
-The acceptance catalog records three passing scenarios for A-CONT-01. A-V01 is a separate mandatory gate for the same v0.1.0 profile. Kani covers full-width geometry and both checkpoint-area wire layouts, standard object-header field decoding through 32 bytes, and the checksum input window through 40 bytes. A weighted-sum oracle checks production Fletcher-64 arithmetic on seven native 4 KiB objects and synthetic buffers from 4 KiB to 64 KiB. A-CONT-01 release qualification remains open pending the complete, revision-bound A-V01 evidence for all five methods. [Acceptance catalog](../reference/test-catalog.json) · [Format and bootstrap evidence](../../crates/formats/apfs-format/verification/README.md) · [Obligation index](../../verification/obligations.json)
+The acceptance catalog records three passing scenarios for A-CONT-01. A-V01 is a separate mandatory gate for the same v0.1.0 profile. Kani covers full-width geometry and both checkpoint-area wire layouts, standard object-header field decoding through 32 bytes, and the checksum input window through 40 bytes. A weighted-sum oracle checks production Fletcher-64 arithmetic on seven native 4 KiB objects and synthetic buffers from 4 KiB to 64 KiB. The release checker qualified the bounded property method from six records on `be236d8`. A-CONT-01 remains open pending complete fuzz, differential, and native qualification. [Acceptance catalog](../reference/test-catalog.json) · [Format and bootstrap evidence](../../crates/formats/apfs-format/verification/README.md) · [Property method evidence](../../verification/README.md) · [Obligation index](../../verification/obligations.json)
 
 ### A-V02 — checkpoint discovery
 **Target:** apfs-container / candidate selection.\
