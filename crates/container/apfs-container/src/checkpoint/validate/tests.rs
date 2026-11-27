@@ -8,6 +8,8 @@ use super::{
 };
 use crate::probe::Probe;
 
+mod payload_validation;
+
 const DEVICE_BYTES: u64 = 64 << 20;
 const LARGER_DEVICE_BYTES: u64 = 128 << 20;
 const BLOCK_BYTES: usize = 4096;
