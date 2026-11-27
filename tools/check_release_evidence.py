@@ -13,7 +13,7 @@ from apfs_evidence_transcript import (
     EvidenceError, require, verify_bootstrap_properties, verify_checkpoint_layouts, verify_checkpoint_model,
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
-    verify_format_fuzz, verify_native_extent, verify_native_windows, verify_tlc,
+    verify_format_fuzz, verify_native_extent, verify_native_size_matrix, verify_native_windows, verify_tlc,
 )
 
 
@@ -183,6 +183,8 @@ def verify_method_policy(name, profile):
             verify_native_checkpoint_policy(name, profile)
         elif "native_extent" in profile:
             verify_native_extent_policy(name, profile)
+        elif "native_size_matrix" in profile:
+            verify_native_size_matrix_policy(name, profile)
         else:
             verify_native_bootstrap_policy(name, profile)
     else:
@@ -342,6 +344,26 @@ def verify_native_extent_policy(name, profile):
     require(set(bounds) == {"block_bytes", "block_count", "prefix_bytes", "trailing_bytes"}
             and all(positive_integer(value) for value in bounds.values())
             and bounds["prefix_bytes"] < bounds["block_bytes"], f"invalid native extent bounds for {name}")
+
+
+def verify_native_size_matrix_policy(name, profile):
+    require(set(profile) == PROFILE_FIELDS | {"native_size_matrix", "partial"} and profile["partial"] is True
+            and "rustc" in profile["tool_versions"], f"invalid native size matrix policy for {name}")
+    fixture = profile["native_size_matrix"]
+    require(isinstance(fixture, dict) and set(fixture) == {"ledger_sha256", "host", "checksums"},
+            f"incomplete native size matrix fixture for {name}")
+    require(text(fixture["ledger_sha256"]) and SHA256.fullmatch(fixture["ledger_sha256"])
+            and text_list(fixture["host"]) and len(fixture["host"]) == 3, f"invalid native size matrix provenance for {name}")
+    sizes = (4096, 8192, 16384, 32768, 65536)
+    checksums = fixture["checksums"]
+    require(isinstance(checksums, dict) and set(checksums) == set(map(str, sizes))
+            and all(text(value) and re.fullmatch(r"[0-9a-f]{16}", value) for value in checksums.values()),
+            f"incomplete native block size checksums for {name}")
+    bounds = profile["bounds"]
+    require(set(bounds) == {"extent_bytes", "prefix_bytes", "trailing_bytes"}
+            and all(positive_integer(value) for value in bounds.values())
+            and bounds["prefix_bytes"] < min(sizes) and bounds["extent_bytes"] % max(sizes) == 0,
+            f"invalid native size matrix bounds for {name}")
 
 
 def verify_native_checkpoint_policy(name, profile):
@@ -544,6 +566,11 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
             require(record.get("fixture_hash") == fixture["ledger_sha256"],
                     "native fixture hash does not match the extent acquisition ledger")
             verify_native_extent(transcript, fixture, profile["bounds"], profile["tool_versions"])
+        elif "native_size_matrix" in profile:
+            fixture = profile["native_size_matrix"]
+            require(record.get("fixture_hash") == fixture["ledger_sha256"],
+                    "native fixture hash does not match the size matrix acquisition ledger")
+            verify_native_size_matrix(transcript, fixture, profile["bounds"], profile["tool_versions"])
         else:
             require(record.get("fixture_hash") == profile["native_fixture"]["ledger_sha256"],
                     "native fixture hash does not match the acquisition ledger")

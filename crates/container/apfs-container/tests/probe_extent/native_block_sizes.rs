@@ -62,16 +62,24 @@ fn native_probe_matches_all_admitted_block_sizes() {
 				length,
 				reads: RefCell::default(),
 			};
+			let extent = probe_extent(&source).unwrap();
+			assert_eq!(extent, NonZeroU64::new(CONTAINER_BYTES));
+			let reads = source.reads.borrow();
 			assert_eq!(
-				probe_extent(&source).unwrap(),
-				NonZeroU64::new(CONTAINER_BYTES)
-			);
-			assert_eq!(
-				*source.reads.borrow(),
+				*reads,
 				[
 					(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES),
 					(BOOTSTRAP, capture.block_bytes as usize)
 				]
+			);
+			let (prefix_offset, prefix_bytes) = reads[0];
+			let (block_offset, block_bytes) = reads[1];
+			println!(
+				"APFS native bootstrap matrix probe {} {length} {} {} {prefix_bytes} {} {block_bytes}",
+				capture.block_bytes,
+				extent.unwrap().get(),
+				prefix_offset.0,
+				block_offset.0,
 			);
 		}
 		println!(

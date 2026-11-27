@@ -189,6 +189,26 @@
         "bootstrap_sha256": "11dd5ddbf73b8ce8fcf8dca4bdccaac74909c1339a71301835de0b4fc97ee380"
       }
     },
+    "bootstrap-native-size-matrix": {
+      "obligation": "A-V01",
+      "method": "native",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/container/apfs-container/verification/check-native-size-matrix.sh"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024},
+      "native_size_matrix": {
+        "ledger_sha256": "def2d79906983fefa75ba843d7796bf1614b7aa05b8205bc9a7c9463946e5cba",
+        "host": ["14.7.2", "23H311", "arm64"],
+        "checksums": {
+          "4096": "ff6b7d4b7fef6594",
+          "8192": "93dfe781b706a414",
+          "16384": "5f28f8fa40ab799f",
+          "32768": "0f77b0d4dc4116d7",
+          "65536": "4bcc7609f30e3ca2"
+        }
+      }
+    },
     "checkpoint-native-replay": {
       "obligation": "A-V02",
       "method": "native",

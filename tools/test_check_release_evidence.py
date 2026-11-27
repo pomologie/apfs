@@ -11,7 +11,7 @@ import unittest
 from check_release_evidence import EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, validate
 from apfs_evidence_transcript import (
     verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
-    verify_locator_properties, verify_native_checkpoints, verify_native_extent,
+    verify_locator_properties, verify_native_checkpoints, verify_native_extent, verify_native_size_matrix,
     verify_complete_objects, verify_format_fuzz, verify_native_geometry,
     verify_native_windows,
     verify_span_properties,
@@ -221,6 +221,29 @@ class ReleaseEvidenceTests(unittest.TestCase):
                            fixture_hash=NATIVE_FIXTURE["ledger_sha256"])
         del self.record["proof"]
         self.set_transcript(NATIVE_TRANSCRIPT)
+
+    def test_native_size_matrix_requires_each_size_and_both_read_patterns(self):
+        fixture = {"ledger_sha256": "a" * 64, "host": ["14.7.2", "23H311", "arm64"], "checksums": {
+            "4096": "ff6b7d4b7fef6594", "8192": "93dfe781b706a414",
+        }}
+        bounds = {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024}
+        versions = {"rustc": "1.99.1"}
+        padded = "APFS native bootstrap matrix probe 8192 134218752 134217728 0 40 0 8192\n"
+        transcript = f"""rustc 1.99.1 (58cf8f9c3 2026-10-13)
+APFS native bootstrap matrix 4096 32768 134217728 ff6b7d4b7fef6594
+APFS native bootstrap matrix probe 4096 134217728 134217728 0 40 0 4096
+APFS native bootstrap matrix probe 4096 134218752 134217728 0 40 0 4096
+APFS native bootstrap matrix 8192 16384 134217728 93dfe781b706a414
+APFS native bootstrap matrix probe 8192 134217728 134217728 0 40 0 8192
+{padded}APFS native bootstrap matrix ledger {fixture['ledger_sha256']}
+APFS native bootstrap matrix oracle 14.7.2 23H311 arm64
+APFS native bootstrap matrix completed
+"""
+        verify_native_size_matrix(transcript, fixture, bounds, versions)
+        for old, replacement in ((padded, ""), ("93dfe781b706a414", "4bcc7609f30e3ca2"),
+                                 ("0 40 0 8192", "0 40 0 4096"), (fixture["ledger_sha256"], "b" * 64)):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, "probe rows"):
+                verify_native_size_matrix(transcript.replace(old, replacement), fixture, bounds, versions)
 
     def test_native_extent_requires_both_source_lengths_and_exact_reads(self):
         fixture = {key: value for key, value in NATIVE_FIXTURE.items()

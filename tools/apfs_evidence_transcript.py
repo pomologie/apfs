@@ -34,6 +34,8 @@ NATIVE_BOOTSTRAP_PREFIX = "APFS native bootstrap "
 NATIVE_BOOTSTRAP_SUCCESS = "APFS native bootstrap replay completed"
 NATIVE_EXTENT_PREFIX = "APFS native extent "
 NATIVE_EXTENT_SUCCESS = "APFS native extent replay completed"
+NATIVE_SIZE_MATRIX_PREFIX = "APFS native bootstrap matrix "
+NATIVE_SIZE_MATRIX_SUCCESS = "APFS native bootstrap matrix completed"
 NATIVE_CHECKPOINT_PREFIX = "APFS native checkpoints "
 NATIVE_CHECKPOINT_SUCCESS = "APFS native checkpoints replay completed"
 CHECKPOINT_DIFFERENTIAL_PREFIX = "APFS checkpoint differential matched "
@@ -327,6 +329,25 @@ def verify_native_extent(transcript, fixture, bounds, versions):
     actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_EXTENT_PREFIX))
     require(actual == Counter(f"{NATIVE_EXTENT_PREFIX}{row}" for row in expected),
             "native extent ledger, fixture, or probe facts disagree with the policy")
+
+
+def verify_native_size_matrix(transcript, fixture, bounds, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native size matrix transcript has the wrong Rust version")
+    require(lines[-1:] == [NATIVE_SIZE_MATRIX_SUCCESS] and lines.count(NATIVE_SIZE_MATRIX_SUCCESS) == 1,
+            "native size matrix replay did not complete")
+    extent = bounds["extent_bytes"]
+    expected = [
+        f"ledger {fixture['ledger_sha256']}",
+        "oracle " + " ".join(fixture["host"]),
+        *(f"{size} {extent // int(size)} {extent} {checksum}" for size, checksum in fixture["checksums"].items()),
+        *(f"probe {size} {length} {extent} 0 {bounds['prefix_bytes']} 0 {size}"
+          for size in fixture["checksums"] for length in (extent, extent + bounds["trailing_bytes"])),
+    ]
+    actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_SIZE_MATRIX_PREFIX))
+    require(actual == Counter(f"{NATIVE_SIZE_MATRIX_PREFIX}{row}" for row in expected),
+            "native size matrix ledger or positive probe rows disagree with the policy")
 
 
 def checkpoint_replay_facts(name, snapshot, slots):
