@@ -108,7 +108,8 @@ fn typed_ring_ordinals_match_modular_distance_at_full_width() {
 							distance.saturating_add(1),
 						] {
 							let expected = if index >= blocks
-								|| next >= blocks || length > blocks
+								|| next >= blocks
+								|| length > blocks
 								|| ordinal >= length
 							{
 								Err(Error::InvalidCheckpoint)
