@@ -249,11 +249,20 @@ def verify_method_policy(name, profile):
                     and all(positive_integer(value) for value in row) for row in rows)
                     and len({tuple(row) for row in rows}) == len(rows), f"invalid {case} rows for {name}")
     elif method == "fuzz":
-        require(set(profile) == PROFILE_FIELDS | {"partial"} and profile["partial"] is True
+        require(set(profile) == PROFILE_FIELDS | {"partial", "request_inputs"} and profile["partial"] is True
                 and set(versions) == {"rustc", "toolchain", "cargo-fuzz", "libfuzzer-sys"},
                 f"invalid format fuzz policy for {name}")
         require(set(bounds) == {"seed", "runs", "max_request_bytes", "seed_requests"}
                 and all(positive_integer(value) for value in bounds.values()), f"invalid format fuzz bounds for {name}")
+        inputs = profile["request_inputs"]
+        sizes = [4096, *NATIVE_BLOCK_SIZES]
+        geometry = [[index, size, ((64 if index == 0 else 128) << 20) // size, 6, 3, 10]
+                    for index, size in enumerate(sizes)]
+        require(isinstance(inputs, dict) and set(inputs) == {"objects", "fixtures_sha256", "corpus_sha256", "geometry_seeds"}
+                and inputs["objects"] == 12 and inputs["geometry_seeds"] == geometry
+                and bounds["seed_requests"] == 8 * inputs["objects"] + sum(sum(row[3:]) for row in geometry)
+                and all(text(inputs[key]) and SHA256.fullmatch(inputs[key]) for key in ("fixtures_sha256", "corpus_sha256")),
+                f"incomplete format fuzz request matrix for {name}")
     elif method == "native":
         if "native_checkpoints" in profile:
             verify_native_checkpoint_policy(name, profile)
@@ -747,7 +756,7 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "fuzz":
-        verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"])
+        verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"], profile["request_inputs"])
     elif profile["method"] == "differential":
         if "native_growth" in profile:
             cases = profile["native_growth"]

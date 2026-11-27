@@ -9,30 +9,75 @@ use apfs_format::{
 };
 use libfuzzer_sys::fuzz_target;
 
-const DEVICE_BYTES: u64 = 64 << 20;
-const FIXTURE_BLOCK_BYTES: u32 = 4096;
-const FIXTURE_BLOCK_COUNT: u64 = 16_384;
-const NXSB: &[u8] = include_bytes!("../../../tests/fixtures/native-block-0.bin");
+const NATIVE_SUPERBLOCKS: [&[u8]; 6] = [
+	include_bytes!("../../../tests/fixtures/native-block-0.bin"),
+	include_bytes!(
+		"../../../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes/native-block-zero-4096.bin"
+	),
+	include_bytes!(
+		"../../../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes/native-block-zero-8192.bin"
+	),
+	include_bytes!(
+		"../../../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes/native-block-zero-16384.bin"
+	),
+	include_bytes!(
+		"../../../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes/native-block-zero-32768.bin"
+	),
+	include_bytes!(
+		"../../../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes/native-block-zero-65536.bin"
+	),
+];
 const OBJECTS: &[&[u8]] = &[
-	NXSB,
+	NATIVE_SUPERBLOCKS[0],
 	include_bytes!("../../../tests/fixtures/native-block-1.bin"),
 	include_bytes!("../../../tests/fixtures/native-block-2.bin"),
 	include_bytes!("../../../tests/fixtures/native-block-3.bin"),
 	include_bytes!("../../../tests/fixtures/native-block-4.bin"),
 	include_bytes!("../../../tests/fixtures/sonoma-populated-omap-container.bin"),
 	include_bytes!("../../../tests/fixtures/sonoma-populated-omap-volume.bin"),
+	NATIVE_SUPERBLOCKS[1],
+	NATIVE_SUPERBLOCKS[2],
+	NATIVE_SUPERBLOCKS[3],
+	NATIVE_SUPERBLOCKS[4],
+	NATIVE_SUPERBLOCKS[5],
 ];
 const CHECKSUM_BYTES: usize = size_of::<u64>();
 const WORD_BYTES: usize = size_of::<u32>();
 const WIRE_TYPE_OFFSET: usize = 24;
 const WIRE_HEADER_BYTES: usize = 32;
+const WIRE_BLOCK_SIZE: usize = 36;
+const WIRE_BLOCK_COUNT: usize = 40;
+const REQUEST_KINDS: u8 = 4;
 const MODULUS: u128 = u32::MAX as u128;
 
-static GEOMETRY: LazyLock<Geometry> = LazyLock::new(|| {
-	let geometry = Superblock::decode(NXSB, DEVICE_BYTES).unwrap().geometry;
-	assert_eq!(geometry.block_bytes(), FIXTURE_BLOCK_BYTES);
-	assert_eq!(geometry.block_count(), FIXTURE_BLOCK_COUNT);
-	geometry
+struct Fixture {
+	bytes: &'static [u8],
+	width: u32,
+	count: u64,
+	extent: u64,
+	geometry: Geometry,
+}
+
+static FIXTURES: LazyLock<[Fixture; NATIVE_SUPERBLOCKS.len()]> = LazyLock::new(|| {
+	NATIVE_SUPERBLOCKS.map(|bytes| {
+		let width =
+			u32::from_le_bytes(bytes[WIRE_BLOCK_SIZE..WIRE_BLOCK_COUNT].try_into().unwrap());
+		let count = wire_u64(bytes, WIRE_BLOCK_COUNT);
+		assert_eq!(width as usize, bytes.len());
+		let extent = u64::from(width).checked_mul(count).unwrap();
+		let geometry = Superblock::decode(bytes, extent).unwrap().geometry;
+		assert_eq!(
+			(geometry.block_bytes(), geometry.block_count()),
+			(width, count)
+		);
+		Fixture {
+			bytes,
+			width,
+			count,
+			extent,
+			geometry,
+		}
+	})
 });
 
 fuzz_target!(|request: &[u8]| {
@@ -45,25 +90,45 @@ fuzz_target!(|request: &[u8]| {
 	};
 	let start = u64::from_le_bytes(*first);
 	let count = u64::from_le_bytes(*second);
-	match selector % 3 {
+	let fixture = &FIXTURES[usize::from(selector / REQUEST_KINDS) % FIXTURES.len()];
+	match selector % REQUEST_KINDS {
 		0 => check_window(start, count),
-		1 => check_range(start, count),
-		_ => check_range(
-			start % (FIXTURE_BLOCK_COUNT + 1),
-			count % (FIXTURE_BLOCK_COUNT + 1),
+		1 => check_range(fixture, start, count),
+		2 => check_range(
+			fixture,
+			start % (fixture.count + 1),
+			count % (fixture.count + 1),
 		),
+		_ => check_extent(fixture, start, count),
 	}
 });
 
-fn check_range(start: u64, count: u64) {
+fn check_range(fixture: &Fixture, start: u64, count: u64) {
 	let end = u128::from(start) + u128::from(count);
-	let expected = if end <= u128::from(FIXTURE_BLOCK_COUNT) {
-		let width = u128::from(FIXTURE_BLOCK_BYTES);
+	let expected = if end <= u128::from(fixture.count) {
+		let width = u128::from(fixture.width);
 		Ok(u64::try_from(u128::from(start) * width).unwrap()..u64::try_from(end * width).unwrap())
 	} else {
 		Err(Error::InvalidGeometry)
 	};
-	assert_eq!(GEOMETRY.byte_range(BlockAddress(start), count), expected);
+	assert_eq!(
+		fixture.geometry.byte_range(BlockAddress(start), count),
+		expected
+	);
+}
+
+fn check_extent(fixture: &Fixture, length: u64, mode: u64) {
+	let source_bytes = if mode.is_multiple_of(2) {
+		length
+	} else {
+		length % (fixture.extent * 2)
+	};
+	let observed = Superblock::decode(fixture.bytes, source_bytes);
+	if source_bytes < fixture.extent {
+		assert_eq!(observed, Err(Error::InvalidGeometry));
+	} else {
+		assert_eq!(observed.unwrap().geometry, fixture.geometry);
+	}
 }
 
 fn check_window(fixture: u64, length: u64) {
@@ -78,6 +143,7 @@ fn check_window(fixture: u64, length: u64) {
 	assert_eq!(Header::type_hint(prefix), expected_type);
 	if length < WIRE_HEADER_BYTES || !length.is_multiple_of(WORD_BYTES) {
 		assert_eq!(checksum(prefix), Err(Error::Truncated));
+		assert_eq!(Header::decode(prefix), Err(Error::Truncated));
 		return;
 	}
 	let (words, remainder) = prefix[CHECKSUM_BYTES..].as_chunks::<WORD_BYTES>();
@@ -95,4 +161,26 @@ fn check_window(fixture: u64, length: u64) {
 	let high = 1 + ((weighted + MODULUS - 1) % MODULUS);
 	let expected = (u64::try_from(high).unwrap() << u32::BITS) | u64::try_from(low).unwrap();
 	assert_eq!(checksum(prefix), Ok(expected));
+	let observed = Header::decode(prefix);
+	if wire_u64(prefix, 0) != expected {
+		assert_eq!(observed, Err(Error::InvalidChecksum));
+	} else {
+		let header = observed.unwrap();
+		assert_eq!(header.checksum, expected);
+		assert_eq!(header.id.0, wire_u64(prefix, CHECKSUM_BYTES));
+		assert_eq!(header.transaction.0, wire_u64(prefix, 2 * CHECKSUM_BYTES));
+		assert_eq!(Ok(header.object_type), expected_type);
+		assert_eq!(
+			header.subtype,
+			u32::from_le_bytes(
+				prefix[WIRE_TYPE_OFFSET + WORD_BYTES..WIRE_HEADER_BYTES]
+					.try_into()
+					.unwrap()
+			)
+		);
+	}
+}
+
+fn wire_u64(bytes: &[u8], offset: usize) -> u64 {
+	u64::from_le_bytes(bytes[offset..offset + size_of::<u64>()].try_into().unwrap())
 }

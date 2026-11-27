@@ -792,29 +792,37 @@ APFS native checkpoints replay completed
 
 class FormatFuzzTranscriptTests(unittest.TestCase):
     def test_requires_pinned_address_sanitizer_corpus_and_run_count(self):
+        inputs = {"objects": 12, "fixtures_sha256": "a" * 64, "corpus_sha256": "b" * 64,
+                  "geometry_seeds": [[0, 4096, 16384, 6, 3, 10]]}
         transcript = "\n".join([
+            "APFS format fuzz geometry-seeds 0 4096 16384 6 3 10",
+            f"APFS format fuzz input 12 210 {inputs['fixtures_sha256']} {inputs['corpus_sha256']}",
             "rustc 1.101.0-nightly (test)", "cargo-fuzz 0.13.2", "libfuzzer-sys v0.4.13",
             "APFS format fuzz AddressSanitizer nightly-2026-11-04 seed 7 runs 20000 max-request-bytes 17",
-            "INFO: Seed: 7", "INFO: seed corpus: files: 58 min: 17b max: 17b total: 986b rss: 50Mb",
+            "INFO: Seed: 7", "INFO: seed corpus: files: 210 min: 17b max: 17b total: 3570b rss: 50Mb",
+            "#211\tINITED cov: 173 ft: 218",
             "#20000\tDONE   cov: 173 ft: 218", "Done 20000 runs in 0 second(s)",
             "APFS format requests fuzz completed",
         ])
-        bounds = {"seed": 7, "runs": 20000, "max_request_bytes": 17, "seed_requests": 58}
+        bounds = {"seed": 7, "runs": 20000, "max_request_bytes": 17, "seed_requests": 210}
         versions = {"rustc": "1.101.0-nightly", "toolchain": "nightly-2026-11-04",
                     "cargo-fuzz": "0.13.2", "libfuzzer-sys": "0.4.13"}
-        verify_format_fuzz(transcript, bounds, versions)
+        verify_format_fuzz(transcript, bounds, versions, inputs)
         for original, replacement, reason in [
             ("libfuzzer-sys v0.4.13", "libfuzzer-sys v0.4.12", "tool versions"),
             ("AddressSanitizer nightly", "MemorySanitizer nightly", "sanitizer or seed"),
             ("Seed: 7", "Seed: 8", "sanitizer or seed"),
-            ("files: 58", "files: 57", "seed corpus"),
+            ("files: 210", "files: 209", "seed corpus"),
+            ("#211", "#210", "seed corpus"),
+            ("4096 16384 6 3 10", "4096 16384 6 3 9", "request matrix"),
+            ("a" * 64, "c" * 64, "request matrix"),
             ("#20000", "#19999", "complete the required observations"),
-            ("cov: 173", "cov: 0", "complete the required observations"),
+            ("DONE   cov: 173", "DONE   cov: 0", "complete the required observations"),
             ("Done 20000", "Done 19999", "complete the required observations"),
             ("Done 20000", "ERROR: AddressSanitizer\nDone 20000", "runtime error"),
         ]:
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, reason):
-                verify_format_fuzz(transcript.replace(original, replacement), bounds, versions)
+                verify_format_fuzz(transcript.replace(original, replacement), bounds, versions, inputs)
 
 
 class NativeGeometryTranscriptTests(unittest.TestCase):

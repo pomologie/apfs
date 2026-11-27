@@ -222,7 +222,7 @@ def verify_checkpoint_decisions(transcript, cases, versions):
     require(observed == expected, "missing, duplicate, or unexpected checkpoint decisions")
 
 
-def verify_format_fuzz(transcript, bounds, versions):
+def verify_format_fuzz(transcript, bounds, versions, inputs):
     lines = transcript.splitlines()
     require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1
             and lines.count(f"cargo-fuzz {versions['cargo-fuzz']}") == 1
@@ -233,8 +233,15 @@ def verify_format_fuzz(transcript, bounds, versions):
     require(lines.count(marker) == 1 and lines.count(f"INFO: Seed: {seed}") == 1,
             "format fuzz sanitizer or seed does not match policy")
     corpus = bounds["seed_requests"]
+    input_row = f"APFS format fuzz input {inputs['objects']} {corpus} {inputs['fixtures_sha256']} {inputs['corpus_sha256']}"
+    geometry_prefix = "APFS format fuzz geometry-seeds "
+    expected = Counter(geometry_prefix + " ".join(map(str, row)) for row in inputs["geometry_seeds"])
+    require(lines.count(input_row) == 1 and Counter(line for line in lines if line.startswith(geometry_prefix)) == expected,
+            "format fuzz fixture or request matrix does not match policy")
     corpus_prefix = f"INFO: seed corpus: files: {corpus} min: {maximum}b max: {maximum}b total: {corpus * maximum}b "
-    require(sum(line.startswith(corpus_prefix) for line in lines) == 1, "format fuzz seed corpus does not match policy")
+    require(sum(line.startswith(corpus_prefix) for line in lines) == 1
+            and sum(bool(re.match(rf"^#{corpus + 1}\s+INITED\s+cov: [1-9]\d*\b", line)) for line in lines) == 1,
+            "format fuzz seed corpus does not match policy")
     completion = "APFS format requests fuzz completed"
     require(lines[-1:] == [completion] and lines.count(completion) == 1
             and sum(bool(re.match(rf"^#{runs}\s+DONE\s+cov: [1-9]\d*\b", line)) for line in lines) == 1

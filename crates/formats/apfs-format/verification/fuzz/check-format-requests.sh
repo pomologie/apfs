@@ -8,21 +8,44 @@ corpus="$scratch/corpus"
 mkdir "$corpus"
 
 # Only scalar selectors enter the corpus. Fixture bytes are compiled into the harness.
-python3 -B - "$corpus" <<'PY'
+python3 -B - "$corpus" "$fuzz_dir" <<'PY'
+from hashlib import sha256
 from pathlib import Path
 from struct import pack
 import sys
 
 corpus = Path(sys.argv[1])
-block_count = 16_384
+crate = Path(sys.argv[2]).resolve().parents[1]
+format_fixtures = crate / "tests" / "fixtures"
+size_fixtures = crate.parents[1] / "container" / "apfs-container" / "tests" / "fixtures" / "native-bootstrap-sizes"
+widths = (4096, 8192, 16384, 32768, 65536)
+objects = [format_fixtures / name for name in (
+    "native-block-0.bin", "native-block-1.bin", "native-block-2.bin", "native-block-3.bin", "native-block-4.bin",
+    "sonoma-populated-omap-container.bin", "sonoma-populated-omap-volume.bin",
+)] + [size_fixtures / f"native-block-zero-{width}.bin" for width in widths]
+fixture_digest = sha256()
+for source in objects:
+    fixture_digest.update(sha256(source.read_bytes()).digest())
 max_u64 = (1 << 64) - 1
-windows = [(0, fixture, length) for fixture in range(7) for length in (0, 27, 28, 31, 32, 33, 4096)]
-ranges = [(1, start, count) for start, count in (
-    (0, 0), (0, block_count), (block_count, 0), (block_count, 1), (max_u64, 1), (1, max_u64),
-)]
-projected = [(2, start, count) for start, count in ((0, 1), (block_count - 1, 1), (block_count, 0))]
-for i, record in enumerate(windows + ranges + projected):
-    (corpus / f"request-{i:02}").write_bytes(pack("<BQQ", *record))
+windows = [(0, fixture, length) for fixture, source in enumerate(objects)
+           for size in (source.stat().st_size,) for length in (0, 27, 28, 31, 32, 33, size - 1, size)]
+queries = []
+for fixture, (width, extent) in enumerate(((4096, 64 << 20), *((width, 128 << 20) for width in widths))):
+    selector = fixture * 4
+    block_count = extent // width
+    queries.extend((selector + 1, start, count) for start, count in (
+        (0, 0), (0, block_count), (block_count, 0), (block_count, 1), (max_u64, 1), (1, max_u64),
+    ))
+    queries.extend((selector + 2, start, count) for start, count in ((0, 1), (block_count - 1, 1), (block_count, 0)))
+    queries.extend((selector + 3, source, mode)
+                   for source in (0, extent - 1, extent, extent + 1, max_u64) for mode in (0, 1))
+    print(f"APFS format fuzz geometry-seeds {fixture} {width} {block_count} 6 3 10")
+seed_digest = sha256()
+for index, record in enumerate(windows + queries):
+    request = pack("<BQQ", *record)
+    seed_digest.update(request)
+    (corpus / f"request-{index:03}").write_bytes(request)
+print(f"APFS format fuzz input {len(objects)} {len(windows) + len(queries)} {fixture_digest.hexdigest()} {seed_digest.hexdigest()}")
 PY
 
 toolchain=nightly-2026-11-04
