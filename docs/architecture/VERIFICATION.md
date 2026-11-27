@@ -35,17 +35,19 @@ The clean `be236d8` replay passed 237 tests with two opt-in matrix tests skipped
 
 The clean `d4aeead` replay passed 243 tests with two opt-in matrix tests skipped. The ring-placement tests exercise distinct candidate location, descriptor span, and data span decisions. Checkpoint validation reached 217 of 239 lines and 75 of 92 branch outcomes. The report is in `target/verification-evidence/v0.1.0/d4aeead-critical-coverage/` with SHA-256 `2a574faebe49173ac4455265d3cf090ec1b758af128f50a6e5ff12aae7aac917`.
 
+The clean `87b6908` replay passed 246 tests with two opt-in matrix tests skipped. It covered 6,473 of 7,380 workspace lines. The classifier tests check the distinction between unsupported object types and format errors. A retained 128 MiB checkpoint returned `InvalidGeometry` after one descriptor read in a 64 MiB source view. Checkpoint validation reached 230 of 242 lines (95.04%) and 83 of 92 branch outcomes (90.22%), meeting both numeric thresholds. The report is in `target/verification-evidence/v0.1.0/87b6908-critical-coverage/` with SHA-256 `b4a37ff122ab7e6be1dd8d10cbb94a29f77f4b013ad5c09b4509babc14fd9f67`.
+
 | Critical source | Lines | Branch outcomes |
 |---|---:|---:|
 | Object header and checksum | 36 / 36 | 6 / 6 |
 | Superblock format | 153 / 154 | 33 / 36 |
 | Checkpoint record format | 56 / 57 | 16 / 16 |
 | Container checkpoint loading | 140 / 140 | 20 / 20 |
-| Checkpoint validation | 217 / 239 | 75 / 92 |
+| Checkpoint validation | 230 / 242 | 83 / 92 |
 | Container extent probe | 94 / 98 | 9 / 10 |
 | Checkpoint selection | 37 / 37 | 0 / 0 |
 
-Checkpoint validation remains below both proposed critical-file thresholds. LLVM emitted no branch outcomes for `selection.rs`. A-VER-01-T01 and the mandatory release evidence for A-V01 and A-V02 remain open. [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
+All seven configured critical files meet the line threshold, and all six with emitted branch outcomes meet the branch threshold. LLVM emitted no branch outcomes for `selection.rs`. The named volume tests exercise implicit selection with zero, one, and multiple volumes and explicit selection by known and unknown object IDs or UUIDs. A-VER-01-T01 still requires reconciliation of the remaining mandatory evidence and safety invariants. [Volume selection tests](../../crates/container/apfs-container/tests/volumes/discovery.rs) · [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
 
 ## Invariant and proof details
 
