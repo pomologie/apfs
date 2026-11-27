@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${1:-}" in
+	"") duration=0 ;;
+	--release-duration) duration=7200 ;;
+	*) printf 'Usage: %s [--release-duration]\n' "$0" >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then
+	printf 'Usage: %s [--release-duration]\n' "$0" >&2
+	exit 2
+fi
+
 fuzz_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/apfs-format-requests.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -57,9 +67,49 @@ cargo fuzz --version
 cargo tree --locked --manifest-path "$fuzz_dir/Cargo.toml" --depth 1 --prefix none
 target=$(rustc --print host-tuple)
 export ASAN_OPTIONS=halt_on_error=1:abort_on_error=1
-printf 'APFS format fuzz AddressSanitizer %s seed 7 runs 20000 max-request-bytes 17\n' "$toolchain"
+seed=7
+runs=20000
+max_request_bytes=17
+if (( duration == 0 )); then
+	printf 'APFS format fuzz AddressSanitizer %s seed %s runs %s max-request-bytes %s\n' \
+		"$toolchain" "$seed" "$runs" "$max_request_bytes"
+else
+	printf 'APFS format fuzz AddressSanitizer %s seed %s minimum-seconds %s max-request-bytes %s\n' \
+		"$toolchain" "$seed" "$duration" "$max_request_bytes"
+fi
 cargo fuzz build --fuzz-dir "$fuzz_dir" --target-dir "$scratch/target" --target "$target" \
 	--sanitizer address --no-default-features format-requests
-"$scratch/target/$target/release/format-requests" "$corpus" \
-	-seed=7 -runs=20000 -max_len=17 "-artifact_prefix=$scratch/"
+command=("$scratch/target/$target/release/format-requests" "$corpus"
+	"-seed=$seed" "-max_len=$max_request_bytes" "-artifact_prefix=$scratch/")
+if (( duration == 0 )); then
+	"${command[@]}" "-runs=$runs"
+else
+	# Leave margin for startup outside the measured observation interval.
+	python3 -B -u - "$duration" "${command[@]}" "-max_total_time=$((duration + 10))" \
+		-print_final_stats=1 <<'PY'
+from hashlib import file_digest
+import re
+import subprocess
+import sys
+import time
+
+duration = int(sys.argv[1])
+with open(sys.argv[2], "rb") as binary:
+    print(f"APFS format fuzz binary-sha256 {file_digest(binary, 'sha256').hexdigest()}")
+markers = []
+with subprocess.Popen(sys.argv[2:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as child:
+    for line in child.stdout:
+        if match := re.match(r"^#\d+\s+(INITED|DONE)\s", line):
+            markers.append((match[1], time.monotonic_ns()))
+        print(line, end="")
+    if child.wait() != 0:
+        sys.exit(f"Format requests exited with status {child.returncode}")
+if [marker for marker, _ in markers] != ["INITED", "DONE"]:
+    sys.exit("Format requests did not report exactly one active interval")
+elapsed = (markers[1][1] - markers[0][1]) // 1_000_000
+if elapsed < duration * 1000:
+    sys.exit(f"Format requests stopped before {duration} seconds ({elapsed} ms)")
+print(f"APFS format fuzz active-ms {elapsed}")
+PY
+fi
 printf 'APFS format requests fuzz completed\n'
