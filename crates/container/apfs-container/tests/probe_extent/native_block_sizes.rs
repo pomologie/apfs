@@ -1,12 +1,18 @@
 use std::{cell::RefCell, num::NonZeroU64};
 
-use apfs_container::probe_extent;
+use apfs_container::{Container, Error, OpenOptions, probe_extent};
 use apfs_core::{ByteOffset, ReadAt};
-use apfs_format::superblock::{BLOCK_SIZE_PREFIX_BYTES, Superblock};
+use apfs_format::{
+	Error as FormatError,
+	object::TransactionId,
+	superblock::{BLOCK_SIZE_PREFIX_BYTES, Superblock},
+};
 
 use super::{BOOTSTRAP, NATIVE_INCOMPATIBLE_FEATURES, TRAILING_BYTES};
 
 const CONTAINER_BYTES: u64 = 128 << 20;
+const SHORTFALL_BYTES: u64 = 1;
+const CHECKPOINT_XID: TransactionId = TransactionId(2);
 
 struct Capture {
 	bytes: &'static [u8],
@@ -55,6 +61,7 @@ fn native_probe_matches_all_admitted_block_sizes() {
 		assert_eq!(superblock.geometry.block_bytes(), capture.block_bytes);
 		assert_eq!(superblock.geometry.block_count(), capture.block_count);
 		assert_eq!(superblock.object.checksum, capture.checksum);
+		assert_eq!(superblock.object.transaction, CHECKPOINT_XID);
 		assert_eq!(superblock.incompatible, NATIVE_INCOMPATIBLE_FEATURES);
 		for length in [CONTAINER_BYTES, CONTAINER_BYTES + TRAILING_BYTES] {
 			let source = BootstrapSource {
@@ -64,16 +71,7 @@ fn native_probe_matches_all_admitted_block_sizes() {
 			};
 			let extent = probe_extent(&source).unwrap();
 			assert_eq!(extent, NonZeroU64::new(CONTAINER_BYTES));
-			let reads = source.reads.borrow();
-			assert_eq!(
-				*reads,
-				[
-					(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES),
-					(BOOTSTRAP, capture.block_bytes as usize)
-				]
-			);
-			let (prefix_offset, prefix_bytes) = reads[0];
-			let (block_offset, block_bytes) = reads[1];
+			let [(prefix_offset, prefix_bytes), (block_offset, block_bytes)] = source.take_reads();
 			println!(
 				"APFS native bootstrap matrix probe {} {length} {} {} {prefix_bytes} {} {block_bytes}",
 				capture.block_bytes,
@@ -82,6 +80,7 @@ fn native_probe_matches_all_admitted_block_sizes() {
 				block_offset.0,
 			);
 		}
+		check_short_source(capture.bytes);
 		println!(
 			"APFS native bootstrap matrix {} {} {} {:016x}",
 			capture.block_bytes, capture.block_count, CONTAINER_BYTES, capture.checksum
@@ -89,13 +88,58 @@ fn native_probe_matches_all_admitted_block_sizes() {
 	}
 }
 
-struct BootstrapSource {
-	bytes: &'static [u8],
+fn check_short_source(bytes: &[u8]) {
+	let length = CONTAINER_BYTES - SHORTFALL_BYTES;
+	let source = BootstrapSource {
+		bytes,
+		length,
+		reads: RefCell::default(),
+	};
+	let check = |operation, result| {
+		assert!(matches!(
+			result,
+			Err(Error::Bootstrap(FormatError::InvalidGeometry))
+		));
+		let [(prefix_offset, prefix_bytes), (block_offset, block_bytes)] = source.take_reads();
+		println!(
+			"APFS native bootstrap matrix cutoff {} {operation} {length} {} {prefix_bytes} {} {block_bytes}",
+			bytes.len(),
+			prefix_offset.0,
+			block_offset.0
+		);
+	};
+	let options = OpenOptions::default();
+	check("probe", probe_extent(&source).map(|_| ()));
+	check("open", Container::open(&source, options).map(|_| ()));
+	check(
+		"open-at",
+		Container::open_at(&source, options, CHECKPOINT_XID).map(|_| ()),
+	);
+}
+
+struct BootstrapSource<'a> {
+	bytes: &'a [u8],
 	length: u64,
 	reads: RefCell<Vec<(ByteOffset, usize)>>,
 }
 
-impl ReadAt for BootstrapSource {
+impl BootstrapSource<'_> {
+	fn take_reads(&self) -> [(ByteOffset, usize); 2] {
+		let mut reads = self.reads.borrow_mut();
+		assert_eq!(
+			*reads,
+			[
+				(BOOTSTRAP, BLOCK_SIZE_PREFIX_BYTES),
+				(BOOTSTRAP, self.bytes.len())
+			]
+		);
+		let trace = reads.as_slice().try_into().unwrap();
+		reads.clear();
+		trace
+	}
+}
+
+impl ReadAt for BootstrapSource<'_> {
 	type Error = usize;
 
 	fn len(&self) -> u64 {

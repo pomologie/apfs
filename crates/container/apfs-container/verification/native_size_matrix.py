@@ -1,4 +1,4 @@
-"""Check provenance, retained bytes and positive probe results for native block sizes."""
+"""Check provenance, retained bytes and source extent results for native block sizes."""
 
 from collections import Counter
 from hashlib import sha256
@@ -16,6 +16,9 @@ FEATURE_OFFSET = 48
 FEATURES = Struct("<QQQ")
 FEATURE_MASKS = (0, 0, 2)
 OBJECT_ID = 1
+BOOTSTRAP_PREFIX_BYTES = 40
+SHORTFALL_BYTES = 1
+CUTOFF_OPERATIONS = ("probe", "open", "open-at")
 PREFIX = "APFS native bootstrap matrix "
 
 
@@ -56,9 +59,17 @@ def verify(transcript):
         raise ValueError("the ledger must cover all five native block sizes")
     expected = Counter(retained_row(record) for record in records)
     actual = Counter(line for line in transcript.splitlines()
-                     if line.startswith(PREFIX) and not line.startswith(PREFIX + "probe "))
+                     if line.startswith(PREFIX) and not line.startswith((PREFIX + "probe ", PREFIX + "cutoff ")))
     if actual != expected:
         raise ValueError("the observed probe rows differ from the acquisition ledgers")
+    expected_cutoffs = Counter(
+        f"{PREFIX}cutoff {record['block_bytes']} {operation} {record['raw_bytes'] - SHORTFALL_BYTES} "
+        f"0 {BOOTSTRAP_PREFIX_BYTES} 0 {record['block_bytes']}"
+        for record in records for operation in CUTOFF_OPERATIONS
+    )
+    actual_cutoffs = Counter(line for line in transcript.splitlines() if line.startswith(PREFIX + "cutoff "))
+    if actual_cutoffs != expected_cutoffs:
+        raise ValueError("short-source cutoffs differ from the acquisition ledgers")
     print(PREFIX + f"ledger {sha256(text.encode('utf-8')).hexdigest()}")
     print(PREFIX + f"oracle {ledger['os']} {ledger['build']} {ledger['architecture']}")
 

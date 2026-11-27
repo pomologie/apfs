@@ -44,6 +44,8 @@ NATIVE_CHECKPOINT_PREFIX = "APFS native checkpoints "
 NATIVE_CHECKPOINT_SUCCESS = "APFS native checkpoints replay completed"
 CHECKPOINT_DIFFERENTIAL_PREFIX = "APFS checkpoint differential matched "
 CHECKPOINT_DIFFERENTIAL_SUCCESS = "APFS checkpoint differential completed"
+NATIVE_GROWTH_PREFIX = "APFS native volume growth "
+NATIVE_GROWTH_SUCCESS = NATIVE_GROWTH_PREFIX + "differential completed"
 LOCATOR_PROPERTY_PREFIX = "APFS locator property "
 LOCATOR_PROPERTY_SUCCESS = "APFS locator properties completed"
 CHECKPOINT_MODEL_PREFIX = "APFS checkpoint model "
@@ -191,6 +193,20 @@ def verify_bootstrap_differential(transcript, cases, versions):
             "bootstrap differential observation counts do not match policy")
     require(sha256("\n".join(sorted(rows)).encode("ascii")).hexdigest() == cases["rows_sha256"],
             "bootstrap observations do not match the independent comparison")
+
+
+def verify_native_growth(transcript, cases, versions):
+    lines = transcript.splitlines()
+    require(sum(line.startswith(f"rustc {versions['rustc']} (") for line in lines) == 1,
+            "native growth transcript has the wrong Rust version")
+    rows = [line for line in lines if line.startswith(NATIVE_GROWTH_PREFIX)]
+    expected_end = [NATIVE_GROWTH_PREFIX + summary for summary in cases["summaries"]]
+    expected_end.extend((f"{NATIVE_GROWTH_PREFIX}ledger {cases['ledger_sha256']}", NATIVE_GROWTH_SUCCESS))
+    require(rows[-len(expected_end):] == expected_end and lines[-1:] == [NATIVE_GROWTH_SUCCESS],
+            "native growth differential did not complete the declared snapshots")
+    require(len(rows) == cases["fact_rows"] + len(expected_end)
+            and sha256("\n".join(rows).encode("ascii")).hexdigest() == cases["rows_sha256"],
+            "native growth rows differ from the independent comparison")
 
 
 def verify_checkpoint_decisions(transcript, cases, versions):
@@ -386,10 +402,12 @@ def verify_native_size_matrix(transcript, fixture, bounds, versions):
         *(f"{size} {extent // int(size)} {extent} {checksum}" for size, checksum in fixture["checksums"].items()),
         *(f"probe {size} {length} {extent} 0 {bounds['prefix_bytes']} 0 {size}"
           for size in fixture["checksums"] for length in (extent, extent + bounds["trailing_bytes"])),
+        *(f"cutoff {size} {operation} {extent - bounds['shortfall_bytes']} 0 {bounds['prefix_bytes']} 0 {size}"
+          for size in fixture["checksums"] for operation in ("probe", "open", "open-at")),
     ]
     actual = Counter(line for line in lines[:-1] if line.startswith(NATIVE_SIZE_MATRIX_PREFIX))
     require(actual == Counter(f"{NATIVE_SIZE_MATRIX_PREFIX}{row}" for row in expected),
-            "native size matrix ledger or positive probe rows disagree with the policy")
+            "native size matrix ledger, probe, or cutoff rows disagree with the policy")
 
 
 def checkpoint_replay_facts(name, snapshot, slots):

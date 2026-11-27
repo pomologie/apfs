@@ -15,7 +15,7 @@ from apfs_evidence_transcript import (
     NATIVE_GEOMETRY_GROUPS, verify_checkpoint_differential, verify_checksum_differential, verify_complete_objects, verify_native_geometry,
     verify_kani, verify_locator_properties, verify_native_bootstrap, verify_native_checkpoints, verify_span_properties,
     FULL_OPEN_HOST_FIELDS, FULL_OPEN_SOURCE_DIGESTS, verify_format_fuzz, verify_native_extent,
-    verify_native_full_open, verify_native_size_matrix, verify_native_windows, verify_tlc,
+    verify_native_full_open, verify_native_growth, verify_native_size_matrix, verify_native_windows, verify_tlc,
 )
 
 
@@ -46,6 +46,7 @@ NATIVE_BOOTSTRAP_HASH_FIELDS = {"ledger_sha256", "raw_sha256", "metadata_sha256"
 NATIVE_BOOTSTRAP_ID_FIELDS = {"os_version", "os_build", "architecture", "oracle_version"}
 NATIVE_BOOTSTRAP_REFUSALS = {"size", "count", "type", "checksum", "required-feature"}
 FULL_OPEN_DIRECTORY = "crates/container/apfs-container/verification"
+NATIVE_GROWTH_LEDGER = "crates/container/apfs-container/tests/fixtures/native-volume-growth/acquisition.json"
 FULL_OPEN_SOURCES = {
     "runner_sha256": f"{FULL_OPEN_DIRECTORY}/check_native_checkpoint_open.py",
     "harness_sha256": f"{FULL_OPEN_DIRECTORY}/native_checkpoint_open.rs",
@@ -54,6 +55,8 @@ CONTAINER_PROPERTY = ("A-V01", "property")
 CONTAINER_PROPERTY_METHOD = "/".join(CONTAINER_PROPERTY)
 CONTAINER_DIFFERENTIAL = ("A-V01", "differential")
 CONTAINER_DIFFERENTIAL_METHOD = "/".join(CONTAINER_DIFFERENTIAL)
+CONTAINER_NATIVE = ("A-V01", "native")
+CONTAINER_NATIVE_METHOD = "/".join(CONTAINER_NATIVE)
 CHECKPOINT_PROPERTY = ("A-V02", "property")
 CHECKPOINT_PROPERTY_METHOD = "/".join(CHECKPOINT_PROPERTY)
 CHECKPOINT_STATES = ["Complete", "AbsentDescriptor", "TornDescriptor", "BlankMap", "MismatchedMap",
@@ -74,6 +77,11 @@ CONTAINER_DIFFERENTIAL_INVOCATIONS = {
     "format-checksum-differential": ("checksum_cases", "formats/apfs-format", "check-checksum.sh"),
     "format-native-geometry-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh"),
     "format-native-size-matrix-differential": ("geometry_cases", "formats/apfs-format", "check-native-geometry.sh", "--size-matrix"),
+}
+CONTAINER_NATIVE_INVOCATIONS = {
+    "bootstrap-native": ("native_fixture", "filesystem/apfs-reader", "check-native-bootstrap.sh"),
+    "bootstrap-native-128m": ("native_extent", "container/apfs-container", "check-native-extent.sh"),
+    "bootstrap-native-size-matrix": ("native_size_matrix", "container/apfs-container", "check-native-size-matrix.sh"),
 }
 CHECKPOINT_PROPERTY_INVOCATIONS = {
     "checkpoint-model-properties": ("checkpoint_cases", "container/apfs-container", "check-checkpoint-model.sh"),
@@ -168,6 +176,17 @@ def verify_method_policy(name, profile):
                 and model["initial_states"] < model["distinct_states"] <= model["states"],
                 f"no non-vacuous TLC model for {name}")
     elif method == "differential":
+        if "native_growth" in profile:
+            cases = profile["native_growth"]
+            require(set(profile) == PROFILE_FIELDS | {"native_growth", "partial"} and profile["partial"] is True
+                    and "rustc" in versions
+                    and bounds == {"descriptor_ring_slots": 16, "snapshots": 2, "source_bytes": 1 << 30}
+                    and isinstance(cases, dict) and set(cases) == {"fact_rows", "summaries", "ledger_sha256", "rows_sha256"}
+                    and cases["fact_rows"] == 17
+                    and cases["summaries"] == ["matched baseline 2 12 8", "matched two-volume 3 10 9"]
+                    and all(text(cases[key]) and SHA256.fullmatch(cases[key]) for key in ("ledger_sha256", "rows_sha256")),
+                    f"invalid native growth differential matrix for {name}")
+            return
         if "bootstrap_differential" in profile:
             cases = profile["bootstrap_differential"]
             require(set(profile) == PROFILE_FIELDS | {"bootstrap_differential", "partial"}
@@ -442,9 +461,10 @@ def verify_native_size_matrix_policy(name, profile):
             and all(text(value) and re.fullmatch(r"[0-9a-f]{16}", value) for value in checksums.values()),
             f"incomplete native block size checksums for {name}")
     bounds = profile["bounds"]
-    require(set(bounds) == {"extent_bytes", "prefix_bytes", "trailing_bytes"}
+    require(set(bounds) == {"extent_bytes", "prefix_bytes", "trailing_bytes", "shortfall_bytes"}
             and all(positive_integer(value) for value in bounds.values())
-            and bounds["prefix_bytes"] < min(sizes) and bounds["extent_bytes"] % max(sizes) == 0,
+            and bounds["prefix_bytes"] < min(sizes) and bounds["extent_bytes"] % max(sizes) == 0
+            and bounds["shortfall_bytes"] == 1 and bounds["extent_bytes"] > max(sizes),
             f"invalid native size matrix bounds for {name}")
 
 
@@ -565,6 +585,23 @@ def checkpoint_property_group(profiles):
     return group
 
 
+def container_native_group(profiles):
+    group = named_partial_group(profiles, CONTAINER_NATIVE, CONTAINER_NATIVE_INVOCATIONS)
+    if not group:
+        return {}
+    populated = group["bootstrap-native"]
+    extent = group["bootstrap-native-128m"]
+    matrix = group["bootstrap-native-size-matrix"]
+    if (populated["bounds"] != {"block_bytes": 4096, "block_count": 16384, "admitted_reads": 2,
+                               "refused_reads": {"size": 1, "count": 2, "type": 2, "checksum": 2, "required-feature": 2}}
+            or populated["native_fixture"]["checkpoint_xid"] != 4
+            or extent["bounds"] != {"block_bytes": 4096, "block_count": 32768, "prefix_bytes": 40, "trailing_bytes": 1024}
+            or extent["native_extent"]["checkpoint_xid"] != 2
+            or matrix["bounds"] != {"extent_bytes": 128 << 20, "prefix_bytes": 40, "trailing_bytes": 1024, "shortfall_bytes": 1}):
+        return {}
+    return group
+
+
 def required_matrix(policy, registry, requested_profile, requested_method=None):
     require(isinstance(policy, dict) and set(policy) == {"schema_version", "milestone", "profiles"}
             and type(policy["schema_version"]) is int and policy["schema_version"] == SCHEMA_VERSION,
@@ -613,6 +650,7 @@ def required_matrix(policy, registry, requested_profile, requested_method=None):
     groups = {
         CONTAINER_PROPERTY: container_property_group(profiles),
         CONTAINER_DIFFERENTIAL: container_differential_group(profiles),
+        CONTAINER_NATIVE: container_native_group(profiles),
         CHECKPOINT_PROPERTY: checkpoint_property_group(profiles),
     }
     if requested_method is not None:
@@ -711,7 +749,12 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "fuzz":
         verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "differential":
-        if "bootstrap_differential" in profile:
+        if "native_growth" in profile:
+            cases = profile["native_growth"]
+            require(record.get("fixture_hash") == cases["ledger_sha256"],
+                    "native growth fixture hash does not match the acquisition ledger")
+            verify_native_growth(transcript, cases, profile["tool_versions"])
+        elif "bootstrap_differential" in profile:
             verify_bootstrap_differential(transcript, profile["bootstrap_differential"], profile["tool_versions"])
         elif "native_source_profile" in profile:
             fixtures = profile["native_checkpoints"]
@@ -783,6 +826,10 @@ def validate(root, bundle, requested_profile, requested_method=None):
     registry = parse_json(git_output(root, "show", f"{commit}:{REGISTRY_PATH}"))
     profiles = required_matrix(policy, registry, requested_profile, requested_method)
     for profile in profiles.values():
+        if "native_growth" in profile:
+            ledger = git_output(root, "show", f"{commit}:{NATIVE_GROWTH_LEDGER}")
+            require(hashlib.sha256(ledger).hexdigest() == profile["native_growth"]["ledger_sha256"],
+                    "native growth ledger digest differs from the committed bytes")
         if "native_full_open" in profile:
             for key, path in FULL_OPEN_SOURCES.items():
                 source = git_output(root, "show", f"{commit}:{path}")
@@ -814,7 +861,8 @@ def main():
     parser.add_argument("--bundle", type=Path, required=True, help="schema v1 JSON array")
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--profile", help="check one invocation instead of all release evidence")
-    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD, CONTAINER_DIFFERENTIAL_METHOD, CHECKPOINT_PROPERTY_METHOD],
+    scope.add_argument("--method", choices=[CONTAINER_PROPERTY_METHOD, CONTAINER_DIFFERENTIAL_METHOD,
+                                           CONTAINER_NATIVE_METHOD, CHECKPOINT_PROPERTY_METHOD],
                        help="check a complete bounded method group")
     arguments = parser.parse_args()
     try:

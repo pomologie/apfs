@@ -269,27 +269,33 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "incomplete native full-open matrix"):
             verify_native_full_open(report | {"results": rows[:1]}, provenance, bounds, versions)
 
-    def test_native_size_matrix_requires_each_size_and_both_read_patterns(self):
+    def test_native_size_matrix_requires_each_size_and_all_source_boundaries(self):
         fixture = {"ledger_sha256": "a" * 64, "host": ["14.7.2", "23H311", "arm64"], "checksums": {
             "4096": "ff6b7d4b7fef6594", "8192": "93dfe781b706a414",
         }}
-        bounds = {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024}
+        bounds = {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024, "shortfall_bytes": 1}
         versions = {"rustc": "1.99.1"}
         padded = "APFS native bootstrap matrix probe 8192 134218752 134217728 0 40 0 8192\n"
+        cutoffs = "".join(
+            f"APFS native bootstrap matrix cutoff {size} {operation} 134217727 0 40 0 {size}\n"
+            for size in fixture["checksums"] for operation in ("probe", "open", "open-at")
+        )
         transcript = f"""rustc 1.99.1 (58cf8f9c3 2026-10-13)
 APFS native bootstrap matrix 4096 32768 134217728 ff6b7d4b7fef6594
 APFS native bootstrap matrix probe 4096 134217728 134217728 0 40 0 4096
 APFS native bootstrap matrix probe 4096 134218752 134217728 0 40 0 4096
 APFS native bootstrap matrix 8192 16384 134217728 93dfe781b706a414
 APFS native bootstrap matrix probe 8192 134217728 134217728 0 40 0 8192
-{padded}APFS native bootstrap matrix ledger {fixture['ledger_sha256']}
+{padded}{cutoffs}APFS native bootstrap matrix ledger {fixture['ledger_sha256']}
 APFS native bootstrap matrix oracle 14.7.2 23H311 arm64
 APFS native bootstrap matrix completed
 """
         verify_native_size_matrix(transcript, fixture, bounds, versions)
         for old, replacement in ((padded, ""), ("93dfe781b706a414", "4bcc7609f30e3ca2"),
-                                 ("0 40 0 8192", "0 40 0 4096"), (fixture["ledger_sha256"], "b" * 64)):
-            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, "probe rows"):
+                                 ("0 40 0 8192", "0 40 0 4096"), (fixture["ledger_sha256"], "b" * 64),
+                                 ("cutoff 8192 open-at", "cutoff 8192 open"),
+                                 ("open-at 134217727", "open-at 134217728")):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, "cutoff rows"):
                 verify_native_size_matrix(transcript.replace(old, replacement), fixture, bounds, versions)
 
     def test_native_extent_requires_both_source_lengths_and_exact_reads(self):
@@ -525,6 +531,22 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
         self.assertNotIn(method, str(full_release.exception))
         self.assertIn("A-V02/native", str(full_release.exception))
         del policy["profiles"]["checkpoint-decision-properties"]
+        with self.assertRaisesRegex(EvidenceError, "no complete configured"):
+            required_matrix(policy, registry, None, method)
+
+    def test_container_native_method_requires_the_complete_native_matrix(self):
+        repository = Path(__file__).resolve().parents[1]
+        policy = json.loads((repository / POLICY_PATH).read_text())
+        registry = json.loads((repository / REGISTRY_PATH).read_text())
+        method = "A-V01/native"
+        self.assertEqual(set(required_matrix(policy, registry, None, method)), {
+            "bootstrap-native", "bootstrap-native-128m", "bootstrap-native-size-matrix",
+        })
+        with self.assertRaises(EvidenceError) as full_release:
+            required_matrix(policy, registry, None)
+        self.assertNotIn(method, str(full_release.exception))
+        self.assertIn("A-V02/native", str(full_release.exception))
+        del policy["profiles"]["bootstrap-native-size-matrix"]
         with self.assertRaisesRegex(EvidenceError, "no complete configured"):
             required_matrix(policy, registry, None, method)
 

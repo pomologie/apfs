@@ -244,7 +244,7 @@
       "features": [],
       "command": ["bash", "crates/container/apfs-container/verification/check-native-size-matrix.sh"],
       "tool_versions": {"rustc": "1.99.1"},
-      "bounds": {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024},
+      "bounds": {"extent_bytes": 134217728, "prefix_bytes": 40, "trailing_bytes": 1024, "shortfall_bytes": 1},
       "native_size_matrix": {
         "ledger_sha256": "def2d79906983fefa75ba843d7796bf1614b7aa05b8205bc9a7c9463946e5cba",
         "host": ["14.7.2", "23H311", "arm64"],
@@ -314,6 +314,21 @@
       "tool_versions": {"rustc": "1.99.1"},
       "bounds": {"descriptor_ring_slots": 8, "snapshots": 2, "candidate_xids_per_snapshot": 4},
       "native_source_profile": "checkpoint-native-replay"
+    },
+    "checkpoint-native-growth-differential": {
+      "obligation": "A-V02",
+      "method": "differential",
+      "partial": true,
+      "features": [],
+      "command": ["python3", "-B", "crates/container/apfs-container/verification/check-native-volume-growth.py"],
+      "tool_versions": {"rustc": "1.99.1"},
+      "bounds": {"descriptor_ring_slots": 16, "snapshots": 2, "source_bytes": 1073741824},
+      "native_growth": {
+        "fact_rows": 17,
+        "summaries": ["matched baseline 2 12 8", "matched two-volume 3 10 9"],
+        "ledger_sha256": "76fba4b71e4e93e86d0a003f725b757c1fee16afa3bfc4c31432ab0d1a310767",
+        "rows_sha256": "939cb53c971c5e396e77b5debb3075e8f8346599ca9a823df8c6c36495d2bfc6"
+      }
     },
     "checkpoint-model-properties": {
       "obligation": "A-V02",
