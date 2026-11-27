@@ -25,17 +25,19 @@ Read the shared ecosystem verification standard EVS-1 (`docs/architecture/ECOSYS
 
 The clean `bfadae9` replay passed all 219 no-default-features workspace tests on arm64 macOS. LLVM measured 6,264 of 7,186 lines (87.17%) across 61 owned files from 18 test binaries and 259 raw profiles. The report is in `target/verification-evidence/v0.1.0/bfadae9-critical-coverage/` with SHA-256 `8585e903b33c37d88806397018bfc3bc65c71d695ac0cac042bce495dda5a824`. [Coverage collector](../../tools/measure_coverage.py)
 
+The clean `407b709` replay passed all 225 tests and measured 6,267 of 7,186 lines. Typed checkpoint tests increased validation branch coverage from 48 to 61 of 92 outcomes and superblock branch coverage from 30 to 33 of 36. The report is in `target/verification-evidence/v0.1.0/407b709-critical-coverage/` with SHA-256 `55fd44b03320265e5c22f67dad72128291fe7063113d343022d2b9201114a602`.
+
 | Critical source | Lines | Branch outcomes |
 |---|---:|---:|
 | Object header and checksum | 36 / 36 | 6 / 6 |
-| Superblock format | 153 / 154 | 30 / 36 |
+| Superblock format | 153 / 154 | 33 / 36 |
 | Checkpoint record format | 54 / 57 | 11 / 16 |
 | Container checkpoint loading | 140 / 140 | 20 / 20 |
-| Checkpoint validation | 207 / 236 | 48 / 92 |
+| Checkpoint validation | 210 / 236 | 61 / 92 |
 | Container extent probe | 94 / 98 | 9 / 10 |
 | Checkpoint selection | 37 / 37 | 0 / 0 |
 
-The superblock format, checkpoint record format, and checkpoint validation fall below the proposed critical-file branch threshold. The checkpoint record format and checkpoint validation also fall below the line threshold. LLVM emitted no branch outcomes for `selection.rs`. A-VER-01-T01 and the mandatory release evidence for A-V01 and A-V02 remain open. [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
+The checkpoint record format and checkpoint validation fall below both proposed critical-file thresholds. LLVM emitted no branch outcomes for `selection.rs`. A-VER-01-T01 and the mandatory release evidence for A-V01 and A-V02 remain open. [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
 
 ## Invariant and proof details
 
