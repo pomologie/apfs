@@ -5,7 +5,7 @@ use apfs_core::{ByteOffset, ReadAt};
 use apfs_format::{
 	Error as FormatError,
 	object::checksum,
-	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress},
+	superblock::{BLOCK_SIZE_PREFIX_BYTES, BlockAddress, Superblock},
 };
 
 const BLOCK_BYTES: usize = 4096;
@@ -74,6 +74,31 @@ fn native_geometry_ignores_trailing_bytes_and_reads_only_block_zero() {
 		NonZeroU64::new(CONTAINER_BYTES)
 	);
 	assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
+}
+
+#[test]
+fn probes_a_second_apple_geometry_from_its_native_block_zero() {
+	const NATIVE_BYTES: u64 = 128 << 20;
+	const NATIVE_BLOCKS: u64 = 32_768;
+	const NATIVE_CHECKSUM: u64 = 0xa5b5_616f_e64c_89d5;
+	const NATIVE_BLOCK: [u8; BLOCK_BYTES] = *include_bytes!("fixtures/sonoma-128m-bootstrap.bin");
+	let superblock = Superblock::decode(&NATIVE_BLOCK, NATIVE_BYTES).unwrap();
+	assert_eq!(superblock.object.checksum, NATIVE_CHECKSUM);
+	assert_eq!(superblock.geometry.block_bytes() as usize, BLOCK_BYTES);
+	assert_eq!(superblock.geometry.block_count(), NATIVE_BLOCKS);
+
+	for length in [NATIVE_BYTES, NATIVE_BYTES + TRAILING_BYTES] {
+		let source = Source {
+			block: NATIVE_BLOCK,
+			length,
+			reads: RefCell::default(),
+		};
+		assert_eq!(
+			probe_extent(&source).unwrap(),
+			NonZeroU64::new(NATIVE_BYTES)
+		);
+		assert_eq!(*source.reads.borrow(), BOOTSTRAP_READS);
+	}
 }
 
 #[test]
