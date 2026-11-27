@@ -29,17 +29,19 @@ The clean `407b709` replay passed all 225 tests and measured 6,267 of 7,186 line
 
 The clean `dd371c9` replay passed all 227 tests. Independent inventories compared 225 descriptor and data ring placements and 5,625 typed multiblock mapping layouts with production. The mapping check requires exact ownership and rejects a mapping that crosses the logical boundary of a full ring. Checkpoint validation reached 211 of 236 lines and 63 of 92 branch outcomes. The report is in `target/verification-evidence/v0.1.0/dd371c9-critical-coverage/` with SHA-256 `567a0b883ffcd78ff330f914db1f418adcd9115d58da9f6ac2d0b7b490d0f8d0`.
 
+The clean `429ae13` replay passed 233 tests. The native geometry matrix was the sole skipped test. Its separate release profile runs the matrix explicitly. The checkpoint map tests checked volume-scoped mappings, the last admitted physical block, and typed errors for inconsistent headers, flags, identities, sizes, and ranges. Checkpoint record format coverage rose to 56 of 57 lines and 16 of 16 branch outcomes. The report is in `target/verification-evidence/v0.1.0/429ae13-critical-coverage/` with SHA-256 `00fc0c2861757fa60773c0a322253c3d8db35bd318f9e970cabcb0c24aeb70cd`.
+
 | Critical source | Lines | Branch outcomes |
 |---|---:|---:|
 | Object header and checksum | 36 / 36 | 6 / 6 |
 | Superblock format | 153 / 154 | 33 / 36 |
-| Checkpoint record format | 54 / 57 | 11 / 16 |
+| Checkpoint record format | 56 / 57 | 16 / 16 |
 | Container checkpoint loading | 140 / 140 | 20 / 20 |
 | Checkpoint validation | 211 / 236 | 63 / 92 |
 | Container extent probe | 94 / 98 | 9 / 10 |
 | Checkpoint selection | 37 / 37 | 0 / 0 |
 
-The checkpoint record format and checkpoint validation fall below both proposed critical-file thresholds. LLVM emitted no branch outcomes for `selection.rs`. A-VER-01-T01 and the mandatory release evidence for A-V01 and A-V02 remain open. [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
+Checkpoint validation remains below both proposed critical-file thresholds. LLVM emitted no branch outcomes for `selection.rs`. A-VER-01-T01 and the mandatory release evidence for A-V01 and A-V02 remain open. [Quantitative criteria](ECOSYSTEM_VERIFICATION.md#7-ci-and-quantitative-gates) · [Acceptance catalog](../reference/test-catalog.json)
 
 ## Invariant and proof details
 
