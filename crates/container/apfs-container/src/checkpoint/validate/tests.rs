@@ -8,6 +8,7 @@ use super::{
 };
 use crate::probe::Probe;
 
+mod candidate_placement;
 mod payload_validation;
 
 const DEVICE_BYTES: u64 = 64 << 20;
