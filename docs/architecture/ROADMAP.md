@@ -27,6 +27,8 @@ At `a2f8d72`, Cargo 1.99.1 assembled all five archives again. An offline workspa
 
 The five archives from `7aa343c` passed the same extracted all-features check on Rust 1.98.0 with all 220 tests passing. The extracted workspace retained all 24 registry package pins from the source lockfile. The artifacts and transcripts are in `target/release-candidates/v0.1.0/7aa343c-cargo/`. The verification record SHA-256 is `9cb11e956bcf2de1519ef2f2df390164b6b84f63fe244d179ce22c10b544ef7f`.
 
+The five archives from `28c3a8a` passed 228 tests after extraction on Rust 1.98.0, with all 24 registry package pins preserved. The evidence and archives are in `target/release-candidates/v0.1.0/28c3a8a-cargo/`. The verification record SHA-256 is `c196ae59681a4d0396fb4284e4e769f3675a2e19e7cef9dc26eeb4bc004b70aa`.
+
 ## Verification integration
 
 The local `VERIFICATION.md` and `verification/obligations.json` define mandatory profile-specific verification gates in addition to the original acceptance tests. Apply ecosystem standard EVS-1 (copy `shared/VERIFICATION.md` as `docs/architecture/ECOSYSTEM_VERIFICATION.md`). No required proof, model check, native test or critical fault gate can be substituted by coverage or a self-generated round trip. `cargo-nextest`, property tests, fuzz/corpus replay, coverage and deterministic architecture checks are required; formal methods activate at the milestones in the obligation registry.
