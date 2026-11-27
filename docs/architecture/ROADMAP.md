@@ -4,7 +4,7 @@ Independent, nonblocking workstream; no APFS functionality required for dmgez 1.
 
 | Version | Scope | Gate |
 |---|---|---|
-| 0.1.0 | Public spec/fixture ledger, checked object codecs, NXSB, checkpoint detection and inspect | A-CONT-01..02; real native fixtures and malformed tests |
+| 0.1.0 | Public spec/fixture ledger, checked object codecs, NXSB, checkpoint detection and inspection through the Rust API | A-CONT-01..02; real native fixtures and malformed tests |
 | 0.2.0 | Object maps, B-trees, volume enumeration and exact XID selection | A-CONT-03..04; independent reference and native metadata comparison |
 | 0.3.0 | Ordinary file/dir/fork/xattr reads, symlinks/hardlinks, names and basic checking | A-READ-01..02; native content/metadata and bounded parser tests |
 | 0.4.0 | Expanded read profiles: compression, snapshots, clone/shared extent observation, multi-volume, additional flags as proven | A-READ-03..04; per-profile gates, never fake unsupported content |
