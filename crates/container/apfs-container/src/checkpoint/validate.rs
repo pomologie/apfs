@@ -1,5 +1,6 @@
 use apfs_core::ReadAt;
 use apfs_format::{
+	Error as FormatError,
 	checkpoint::{Map, Mapping},
 	object::{Header, KIND_MASK, ObjectId, TransactionId},
 	object_map::ObjectMap,
@@ -52,16 +53,8 @@ impl<S: ReadAt> Discovery<'_, S> {
 		let reject = |reason| candidate.reject(reason);
 		self.probe
 			.read_blocks(bootstrap.geometry, candidate.address, 1, scratch)?;
-		let (header, profile) =
-			Superblock::verified_profile(scratch).map_err(|error| match error {
-				apfs_format::Error::UnexpectedObjectType(kind)
-					if kind != Superblock::OBJECT_TYPE
-						&& kind & KIND_MASK == Superblock::OBJECT_TYPE & KIND_MASK =>
-				{
-					candidate.unsupported(Unsupported::SuperblockObjectType(kind))
-				}
-				_ => reject(Corruption::Format(error)),
-			})?;
+		let (header, profile) = Superblock::verified_profile(scratch)
+			.map_err(|error| classify_superblock_error(candidate, error))?;
 		if header.transaction != candidate.xid || candidate.xid < FIRST_CHECKPOINT_XID {
 			return Err(reject(Corruption::Identity));
 		}
@@ -97,18 +90,8 @@ impl<S: ReadAt> Discovery<'_, S> {
 			if header.transaction != candidate.xid || header.id != ObjectId(address.0) {
 				return Err(candidate.reject(Corruption::Object));
 			}
-			let map = Map::decode(scratch, checkpoint.geometry).map_err(|error| match error {
-				apfs_format::Error::UnsupportedCheckpointFlags(flags) => {
-					candidate.unsupported(Unsupported::CheckpointMapFlags(flags))
-				}
-				apfs_format::Error::UnexpectedObjectType(kind)
-					if kind != Map::OBJECT_TYPE
-						&& kind & KIND_MASK == Map::OBJECT_TYPE & KIND_MASK =>
-				{
-					candidate.unsupported(Unsupported::CheckpointMapType(kind))
-				}
-				_ => candidate.reject(Corruption::Format(error)),
-			})?;
+			let map = Map::decode(scratch, checkpoint.geometry)
+				.map_err(|error| classify_map_error(candidate, error))?;
 			if map.is_last() != (ordinal + 1 == map_count) {
 				return Err(candidate.reject(Corruption::Object));
 			}
@@ -180,6 +163,32 @@ impl<S: ReadAt> Discovery<'_, S> {
 			return Err(reject(Corruption::Object));
 		}
 		Ok(())
+	}
+}
+
+fn classify_superblock_error<E>(candidate: Candidate, error: FormatError) -> Error<E> {
+	match error {
+		FormatError::UnexpectedObjectType(kind)
+			if kind != Superblock::OBJECT_TYPE
+				&& kind & KIND_MASK == Superblock::OBJECT_TYPE & KIND_MASK =>
+		{
+			candidate.unsupported(Unsupported::SuperblockObjectType(kind))
+		}
+		_ => candidate.reject(Corruption::Format(error)),
+	}
+}
+
+fn classify_map_error<E>(candidate: Candidate, error: FormatError) -> Error<E> {
+	match error {
+		FormatError::UnsupportedCheckpointFlags(flags) => {
+			candidate.unsupported(Unsupported::CheckpointMapFlags(flags))
+		}
+		FormatError::UnexpectedObjectType(kind)
+			if kind != Map::OBJECT_TYPE && kind & KIND_MASK == Map::OBJECT_TYPE & KIND_MASK =>
+		{
+			candidate.unsupported(Unsupported::CheckpointMapType(kind))
+		}
+		_ => candidate.reject(Corruption::Format(error)),
 	}
 }
 
