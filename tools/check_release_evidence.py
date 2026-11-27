@@ -37,6 +37,8 @@ CHECKSUM_BOUND_FIELDS = {"fixture_bytes", "max_block_bytes", "distinct_word"}
 CHECKSUM_CASE_FIELDS = {"fixtures", "block_sizes", "uniform_words"}
 UINT32_MAX = 2**32 - 1
 NATIVE_BLOCK_SIZES = [4096, 8192, 16384, 32768, 65536]
+FORMAT_REQUEST_RELEASE_PROFILE = "format-request-release-duration"
+FORMAT_REQUEST_RELEASE_SECONDS = 2 * 60 * 60
 BOOTSTRAP_PROPERTY_COLUMNS = {
     "size-prefix": 2, "geometry": 4, "checksum-window": 2, "required-feature": 1,
     "typed-required-feature": 2, "mixed-feature-cutoff": 2,
@@ -261,8 +263,15 @@ def verify_method_policy(name, profile):
         require(set(profile) == PROFILE_FIELDS | {"partial", "request_inputs"} and profile["partial"] is True
                 and set(versions) == {"rustc", "toolchain", "cargo-fuzz", "libfuzzer-sys"},
                 f"invalid format fuzz policy for {name}")
-        require(set(bounds) == {"seed", "runs", "max_request_bytes", "seed_requests"}
+        timed = name == FORMAT_REQUEST_RELEASE_PROFILE
+        stopping_bound = "minimum_seconds" if timed else "runs"
+        require(set(bounds) == {"seed", stopping_bound, "max_request_bytes", "seed_requests"}
                 and all(positive_integer(value) for value in bounds.values()), f"invalid format fuzz bounds for {name}")
+        if timed:
+            require(profile["obligation"] == "A-V01" and bounds["minimum_seconds"] == FORMAT_REQUEST_RELEASE_SECONDS
+                    and profile["command"] == ["bash", "crates/formats/apfs-format/verification/fuzz/check-format-requests.sh",
+                                               "--release-duration"],
+                    f"invalid format fuzz release duration policy for {name}")
         inputs = profile["request_inputs"]
         sizes = [4096, *NATIVE_BLOCK_SIZES]
         geometry = [[index, size, ((64 if index == 0 else 128) << 20) // size, 6, 3, 10]
@@ -765,7 +774,9 @@ def validate_record(record, name, profile, commit, digest, artifacts_root):
     elif profile["method"] == "tlc":
         verify_tlc(transcript, profile["model"], profile["bounds"], profile["tool_versions"])
     elif profile["method"] == "fuzz":
-        verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"], profile["request_inputs"])
+        active_ms = verify_format_fuzz(transcript, profile["bounds"], profile["tool_versions"], profile["request_inputs"])
+        require(active_ms is None or active_ms <= record["duration_ms"],
+                "format fuzz active time exceeds invocation duration")
     elif profile["method"] == "differential":
         if "checkpoint_decision_differential" in profile:
             verify_checkpoint_decision_differential(

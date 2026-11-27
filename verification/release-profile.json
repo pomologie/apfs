@@ -104,6 +104,23 @@
                            [4, 32768, 4096, 6, 3, 10], [5, 65536, 2048, 6, 3, 10]]
       }
     },
+    "format-request-release-duration": {
+      "obligation": "A-V01",
+      "method": "fuzz",
+      "partial": true,
+      "features": [],
+      "command": ["bash", "crates/formats/apfs-format/verification/fuzz/check-format-requests.sh", "--release-duration"],
+      "tool_versions": {"rustc": "1.101.0-nightly", "toolchain": "nightly-2026-11-04", "cargo-fuzz": "0.13.2", "libfuzzer-sys": "0.4.13"},
+      "bounds": {"seed": 7, "minimum_seconds": 7200, "max_request_bytes": 17, "seed_requests": 210},
+      "request_inputs": {
+        "objects": 12,
+        "fixtures_sha256": "a4a6eb0a32284660e7981d453e7cb7f5a87a9eab0fd51264957459b5830153f4",
+        "corpus_sha256": "9aee7d8d9ce824b6039ad4e825197bbbc1c863530b51ce85c8de4cd13d245031",
+        "geometry_seeds": [[0, 4096, 16384, 6, 3, 10], [1, 4096, 32768, 6, 3, 10],
+                           [2, 8192, 16384, 6, 3, 10], [3, 16384, 8192, 6, 3, 10],
+                           [4, 32768, 4096, 6, 3, 10], [5, 65536, 2048, 6, 3, 10]]
+      }
+    },
     "bootstrap-properties": {
       "obligation": "A-V01",
       "method": "property",

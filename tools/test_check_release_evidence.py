@@ -10,8 +10,8 @@ import unittest
 from uuid import UUID
 
 from check_release_evidence import (
-    EvidenceError, POLICY_PATH, REGISTRY_PATH, archive_hash, required_matrix, validate,
-    verify_native_geometry_policy, verify_native_window_policy,
+    EvidenceError, FORMAT_REQUEST_RELEASE_PROFILE, POLICY_PATH, REGISTRY_PATH, archive_hash,
+    required_matrix, validate, verify_method_policy, verify_native_geometry_policy, verify_native_window_policy,
 )
 from apfs_evidence_transcript import (
     verify_checkpoint_decision_differential, verify_checkpoint_differential, verify_checkpoint_layouts, verify_checkpoint_model,
@@ -92,6 +92,27 @@ APFS native bootstrap refused size 1
 APFS native bootstrap refused required-feature 2
 APFS native bootstrap replay completed
 """
+
+
+def timed_format_fuzz_evidence():
+    root = Path(__file__).resolve().parents[1]
+    profile = json.loads((root / POLICY_PATH).read_text(encoding="utf-8"))["profiles"][FORMAT_REQUEST_RELEASE_PROFILE]
+    inputs = profile["request_inputs"]
+    transcript = "\n".join([
+        *("APFS format fuzz geometry-seeds " + " ".join(map(str, row)) for row in inputs["geometry_seeds"]),
+        f"APFS format fuzz input 12 210 {inputs['fixtures_sha256']} {inputs['corpus_sha256']}",
+        "rustc 1.101.0-nightly (test)", "cargo-fuzz 0.13.2", "libfuzzer-sys v0.4.13",
+        "APFS format fuzz AddressSanitizer nightly-2026-11-04 seed 7 minimum-seconds 7200 max-request-bytes 17",
+        "APFS format fuzz binary-sha256 " + "c" * 64,
+        "INFO: Seed: 7", "INFO: seed corpus: files: 210 min: 17b max: 17b total: 3570b rss: 50Mb",
+        "#211\tINITED cov: 173 ft: 218",
+        "#100000\tDONE   cov: 180 ft: 225", "Done 100000 runs in 7200 second(s)",
+        "stat::number_of_executed_units: 100000", "stat::average_exec_per_sec: 13",
+        "stat::new_units_added: 50", "stat::slowest_unit_time_sec: 0", "stat::peak_rss_mb: 59",
+        "APFS format fuzz active-ms 7200000",
+        "APFS format requests fuzz completed",
+    ])
+    return profile, transcript
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -322,6 +343,24 @@ APFS native extent probe 134217728 134217728 0 40 0 4096
 
     def test_accepts_matching_candidate_and_transcript(self):
         self.assertEqual(self.check([self.record]), (1, "0.1.0", self.commit))
+
+    def test_timed_format_fuzz_active_time_fits_invocation_envelope(self):
+        profile, transcript = timed_format_fuzz_evidence()
+        self.policy["profiles"][FORMAT_REQUEST_RELEASE_PROFILE] = profile
+        self.registry["methods"]["fuzz"] = "bounded scalar requests"
+        self.registry["obligations"][0]["required_methods"].append("fuzz")
+        self.commit_policy()
+        self.record.update(
+            commit=self.commit, source_hash=self.digest, profile=FORMAT_REQUEST_RELEASE_PROFILE, method="fuzz",
+            command=profile["command"], tool_versions=profile["tool_versions"], bounds=profile["bounds"],
+            seed="7", duration_ms=7_200_000,
+        )
+        del self.record["proof"]
+        self.set_transcript(transcript)
+        self.assertEqual(self.check([self.record], FORMAT_REQUEST_RELEASE_PROFILE), (1, "0.1.0", self.commit))
+        self.record["duration_ms"] = 7_199_999
+        with self.assertRaisesRegex(EvidenceError, "active time exceeds invocation duration"):
+            self.check([self.record], FORMAT_REQUEST_RELEASE_PROFILE)
 
     def test_archive_digest_ignores_worktree_line_ending_configuration(self):
         (self.root / ".gitattributes").write_text("*.txt text\n", encoding="utf-8")
@@ -856,6 +895,44 @@ class FormatFuzzTranscriptTests(unittest.TestCase):
         ]:
             with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, reason):
                 verify_format_fuzz(transcript.replace(original, replacement), bounds, versions, inputs)
+
+    def test_release_duration_policy_pins_two_hours_and_remains_partial(self):
+        profile, _ = timed_format_fuzz_evidence()
+        verify_method_policy(FORMAT_REQUEST_RELEASE_PROFILE, profile)
+        for change, reason in [
+            ({"bounds": profile["bounds"] | {"minimum_seconds": 7199}}, "release duration policy"),
+            ({"bounds": profile["bounds"] | {"runs": 20_000}}, "format fuzz bounds"),
+            ({"command": profile["command"][:-1]}, "release duration policy"),
+            ({"partial": False}, "format fuzz policy"),
+        ]:
+            with self.subTest(change=change), self.assertRaisesRegex(EvidenceError, reason):
+                verify_method_policy(FORMAT_REQUEST_RELEASE_PROFILE, profile | change)
+
+    def test_release_duration_requires_independent_timing_and_terminal_records(self):
+        profile, transcript = timed_format_fuzz_evidence()
+        args = (profile["bounds"], profile["tool_versions"], profile["request_inputs"])
+        self.assertEqual(verify_format_fuzz(transcript, *args), 7_200_000)
+        for old, replacement, reason in [
+            ("minimum-seconds 7200", "minimum-seconds 7199", "sanitizer or seed"),
+            ("c" * 64, "c" * 63, "binary digest"),
+            ("#211\tINITED", "#-1\tINITED cov: 174\n#211\tINITED", "seed initialization"),
+            ("DONE   cov: 180", "DONE   cov: 0", "terminal observation"),
+            ("#100000\tDONE", "#100001\tDONE", "run summary"),
+            ("#100000\tDONE", "#-1\tDONE cov: 180\n#100000\tDONE", "terminal observation"),
+            ("7200 second(s)", "7199 second(s)", "run summary"),
+            ("7200 second(s)", "-1 second(s)", "run summary"),
+            ("stat::number_of_executed_units: 100000", "stat::number_of_executed_units: 99999", "final statistics"),
+            ("stat::peak_rss_mb: 59", "", "final statistics"),
+            ("stat::peak_rss_mb: 59", "stat::peak_rss_mb: 59\nstat::peak_rss_mb: 60", "final statistics"),
+            ("active-ms 7200000", "active-ms 7199999", "active time"),
+            ("active-ms 7200000", "active-ms -1", "active time"),
+            ("active-ms 7200000", "active-ms 7200000\nAPFS format fuzz active-ms -1", "active time"),
+            ("APFS format fuzz active-ms 7200000", "libFuzzer: run interrupted; exiting\nAPFS format fuzz active-ms 7200000", "interruption"),
+            ("stat::peak_rss_mb: 59\nAPFS format fuzz active-ms 7200000",
+             "APFS format fuzz active-ms 7200000\nstat::peak_rss_mb: 59", "out of order"),
+        ]:
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(EvidenceError, reason):
+                verify_format_fuzz(transcript.replace(old, replacement), *args)
 
 
 class NativeGeometryTranscriptTests(unittest.TestCase):

@@ -243,8 +243,10 @@ def verify_format_fuzz(transcript, bounds, versions, inputs):
             and lines.count(f"cargo-fuzz {versions['cargo-fuzz']}") == 1
             and lines.count(f"libfuzzer-sys v{versions['libfuzzer-sys']}") == 1,
             "format fuzz transcript has the wrong tool versions")
-    seed, runs, maximum = (bounds[key] for key in ("seed", "runs", "max_request_bytes"))
-    marker = f"APFS format fuzz AddressSanitizer {versions['toolchain']} seed {seed} runs {runs} max-request-bytes {maximum}"
+    seed, maximum = (bounds[key] for key in ("seed", "max_request_bytes"))
+    minimum_seconds = bounds.get("minimum_seconds")
+    stopping = f"runs {bounds['runs']}" if minimum_seconds is None else f"minimum-seconds {minimum_seconds}"
+    marker = f"APFS format fuzz AddressSanitizer {versions['toolchain']} seed {seed} {stopping} max-request-bytes {maximum}"
     require(lines.count(marker) == 1 and lines.count(f"INFO: Seed: {seed}") == 1,
             "format fuzz sanitizer or seed does not match policy")
     corpus = bounds["seed_requests"]
@@ -258,12 +260,58 @@ def verify_format_fuzz(transcript, bounds, versions, inputs):
             and sum(bool(re.match(rf"^#{corpus + 1}\s+INITED\s+cov: [1-9]\d*\b", line)) for line in lines) == 1,
             "format fuzz seed corpus does not match policy")
     completion = "APFS format requests fuzz completed"
-    require(lines[-1:] == [completion] and lines.count(completion) == 1
-            and sum(bool(re.match(rf"^#{runs}\s+DONE\s+cov: [1-9]\d*\b", line)) for line in lines) == 1
-            and sum(bool(re.fullmatch(rf"Done {runs} runs in \d+ second\(s\)", line)) for line in lines) == 1,
+    require(lines[-1:] == [completion] and lines.count(completion) == 1,
             "format fuzz run did not complete the required observations")
+    if minimum_seconds is None:
+        runs = bounds["runs"]
+        require(sum(bool(re.match(rf"^#{runs}\s+DONE\s+cov: [1-9]\d*\b", line)) for line in lines) == 1
+                and sum(bool(re.fullmatch(rf"Done {runs} runs in \d+ second\(s\)", line)) for line in lines) == 1,
+                "format fuzz run did not complete the required observations")
     require(not re.search(r"(?:ERROR|SUMMARY): (?:AddressSanitizer|libFuzzer)", transcript),
             "format fuzz reported a runtime error")
+    if minimum_seconds is not None:
+        require("AddressSanitizer:DEADLYSIGNAL" not in transcript and "libFuzzer: run interrupted" not in transcript,
+                "format fuzz reported a runtime error or interruption")
+        return verify_format_fuzz_duration(lines, marker, minimum_seconds, corpus)
+    return None
+
+
+def verify_format_fuzz_duration(lines, marker, minimum_seconds, corpus):
+    def unique_row(prefix, pattern, description):
+        rows = [(index, re.fullmatch(pattern, line))
+                for index, line in enumerate(lines) if re.match(prefix, line)]
+        require(len(rows) == 1 and rows[0][1] is not None, f"invalid format fuzz {description}")
+        return rows[0]
+
+    binary_index, _ = unique_row(
+        r"^APFS format fuzz binary-sha256\b", r"APFS format fuzz binary-sha256 [0-9a-f]{64}", "binary digest")
+    init_index, _ = unique_row(
+        r"^#\S+\s+INITED\b", rf"#{corpus + 1}\s+INITED\s+cov: [1-9][0-9]*\b.*", "seed initialization")
+    done_index, done = unique_row(
+        r"^#\S+\s+DONE\b", r"#([1-9][0-9]*)\s+DONE\s+cov: [1-9][0-9]*\b.*", "terminal observation")
+    summary_index, summary = unique_row(
+        r"^Done\b", r"Done ([1-9][0-9]*) runs in ([0-9]+) second\(s\)", "run summary")
+    runs = int(done[1])
+    require(runs > corpus + 1 and int(summary[1]) == runs and int(summary[2]) >= minimum_seconds,
+            "format fuzz run summary is too short or disagrees with the terminal observation")
+
+    stats = ("number_of_executed_units", "average_exec_per_sec", "new_units_added",
+             "slowest_unit_time_sec", "peak_rss_mb")
+    stat_indices = []
+    for field in stats:
+        index, value = unique_row(rf"^stat::{field}\b", rf"stat::{field}:\s+([0-9]+)", "final statistics")
+        stat_indices.append(index)
+        if field == "number_of_executed_units":
+            require(int(value[1]) == runs, "format fuzz final statistics disagree with the run summary")
+
+    active_index, active = unique_row(
+        r"^APFS format fuzz active-ms\b", r"APFS format fuzz active-ms ([0-9]+)", "active time")
+    active_ms = int(active[1])
+    require(active_ms >= minimum_seconds * 1000, "format fuzz active time is too short")
+    order = (lines.index(marker), binary_index, init_index, done_index, summary_index, *stat_indices, active_index)
+    require(list(order) == sorted(order) and active_index == len(lines) - 2,
+            "format fuzz timed transcript is out of order")
+    return active_ms
 
 
 def verify_locator_properties(transcript, cases, bounds, versions):
