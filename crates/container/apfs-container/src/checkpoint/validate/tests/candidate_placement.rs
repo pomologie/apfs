@@ -1,8 +1,8 @@
-use super::super::validate_candidate_rings;
+use super::super::{FormatError, validate_candidate_rings};
 use super::{
 	AreaLocation, BLOCK_BYTES, BOOTSTRAP, BlockAddress, ByteOffset, Candidate, Corruption,
-	DEVICE_BYTES, Discovery, EARLY, Error, LATEST, LATEST_DESCRIPTOR, LATEST_MAP, Map, Probe,
-	ReadAt, RefCell, Rings, Superblock, Vec,
+	DEVICE_BYTES, Discovery, EARLY, Error, LARGER_BOOTSTRAP, LARGER_DEVICE_BYTES, LATEST,
+	LATEST_DESCRIPTOR, LATEST_MAP, Map, Probe, ReadAt, RefCell, Rings, Superblock, Vec,
 };
 use crate::OpenOptions;
 
@@ -85,6 +85,33 @@ fn candidate_transaction_and_terminal_slot_are_checked_before_map_reads() {
 		assert_candidate_corruption(result, candidate, expected);
 		assert_eq!(*source.reads.borrow(), [address]);
 	}
+}
+
+#[test]
+fn candidate_declared_extent_must_fit_the_source_view() {
+	let bootstrap = Superblock::decode(BOOTSTRAP, DEVICE_BYTES).unwrap();
+	let larger = Superblock::decode(LARGER_BOOTSTRAP, LARGER_DEVICE_BYTES).unwrap();
+	assert_eq!(
+		larger.geometry.block_bytes(),
+		bootstrap.geometry.block_bytes()
+	);
+	assert!(larger.geometry.block_count() > bootstrap.geometry.block_count());
+	let candidate = Candidate {
+		address: LATEST_DESCRIPTOR,
+		xid: larger.object.transaction,
+	};
+	let rings = Rings::from_bootstrap(&bootstrap).unwrap();
+	let source = RetainedBlock::new(candidate.address, LARGER_BOOTSTRAP);
+	let result = source
+		.discovery()
+		.read_candidate(&bootstrap, &rings, candidate, &mut Vec::new());
+
+	assert_candidate_corruption(
+		result,
+		candidate,
+		Corruption::Format(FormatError::InvalidGeometry),
+	);
+	assert_eq!(*source.reads.borrow(), [candidate.address]);
 }
 
 #[test]
