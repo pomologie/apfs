@@ -12,7 +12,8 @@ case "$#:${1:-}" in
 	1:--size-matrix)
 		test_name=report_retained_native_block_size_matrix
 		test_args+=(--ignored)
-		export APFS_NATIVE_GEOMETRY_FIXTURES="$verification_dir/../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes"
+		default_matrix_fixtures="$verification_dir/../../../container/apfs-container/tests/fixtures/native-bootstrap-sizes"
+		export APFS_NATIVE_GEOMETRY_FIXTURES="${APFS_NATIVE_GEOMETRY_FIXTURES:-$default_matrix_fixtures}"
 		;;
 	*) printf 'Usage: %s [--size-matrix]\n' "$0" >&2; exit 2 ;;
 esac

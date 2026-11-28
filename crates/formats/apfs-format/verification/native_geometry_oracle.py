@@ -3,13 +3,15 @@
 from collections import Counter
 from hashlib import sha256
 import json
+from os import environ
 from pathlib import Path
 from struct import Struct, unpack_from
 import sys
 
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests/fixtures"
-MATRIX_FIXTURES = Path(__file__).resolve().parents[3] / "container/apfs-container/tests/fixtures/native-bootstrap-sizes"
+DEFAULT_MATRIX_FIXTURES = Path(__file__).resolve().parents[3] / "container/apfs-container/tests/fixtures/native-bootstrap-sizes"
+MATRIX_FIXTURES = Path(environ.get("APFS_NATIVE_GEOMETRY_FIXTURES") or DEFAULT_MATRIX_FIXTURES)
 MATRIX_BLOCK_SIZES = (4096, 8192, 16384, 32768, 65536)
 MATRIX_SOURCE_BYTES = 128 << 20
 FLETCHER_WORD_BYTES = 4
